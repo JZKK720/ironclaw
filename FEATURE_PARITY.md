@@ -505,6 +505,8 @@ This document tracks feature parity between IronClaw (Rust implementation) and O
 | Pre-commit hooks | prek | - | Consider adding |
 | Docker: Chromium + Xvfb | ✅ | ❌ | Optional browser in container |
 | Docker: init scripts | ✅ | ❌ | /openclaw-init.d/ support |
+| Docker: All-in-one container | ❌ | ✅ | PostgreSQL + IronClaw in single image |
+| Windows deployment scripts | ❌ | ✅ | PowerShell scripts for Windows Docker setup |
 | Browser: extraArgs config | ✅ | ❌ | Custom Chrome launch arguments |
 
 ### Owner: _Unassigned_

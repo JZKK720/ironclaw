@@ -403,6 +403,13 @@ impl SetupWizard {
                     print_info("Let's configure a new database URL.");
                 } else {
                     print_success("Database connection successful");
+
+                    // Existing DATABASE_URL path previously skipped migrations,
+                    // which caused later settings writes to fail on fresh DBs.
+                    if confirm("Run database migrations?", true).map_err(SetupError::Io)? {
+                        self.run_migrations_postgres().await?;
+                    }
+
                     self.settings.database_url = Some(url.clone());
                     return Ok(());
                 }

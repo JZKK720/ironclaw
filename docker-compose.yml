@@ -1,13 +1,25 @@
-# Local development only — do NOT use these credentials in production.
+# IronClaw Local Development Stack
+# Custom Port Mappings:
+#   - Web Gateway:     3231:3000
+#   - HTTP Webhook:    8281:8080
+#   - PostgreSQL:      5433:5432
+#
+# Usage:
+#   1. Build image: docker build --platform linux/amd64 -t ironclaw:latest .
+#   2. Start services: docker-compose up -d
+#   3. Access: http://localhost:3231
+
 services:
+  # PostgreSQL with pgvector extension
   postgres:
     image: pgvector/pgvector:pg16
+    container_name: ironclaw-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: ironclaw
       POSTGRES_USER: ironclaw
-      POSTGRES_PASSWORD: ironclaw  # dev-only, change for any non-local deployment
+      POSTGRES_PASSWORD: ironclaw
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,6 +27,49 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - ironclaw-network
+
+  # IronClaw Application
+  ironclaw:
+    image: ironclaw:latest
+    container_name: ironclaw-app
+    user: "1000:1000"   # Run as ironclaw user
+    ports:
+      - "3231:3000"    # Web Gateway (host:3231 → container:3000)
+      - "8281:8080"    # HTTP Webhook (host:8281 → container:8080)
+    env_file:
+      - .env           # Load all environment variables from .env file
+    environment:
+      # Override DATABASE_URL for Docker networking
+      DATABASE_URL: postgres://ironclaw:ironclaw@postgres:5432/ironclaw
+      # Secrets master key (bypasses OS keychain in Docker)
+      SECRETS_MASTER_KEY: ironclaw-demo-master-key-32-chars-long-change-me-plz
+      # Skip OS keychain in Docker
+      IRONCLAW_SKIP_KEYCHAIN: "true"
+    volumes:
+      # Persist IronClaw data
+      - ironclaw-data:/home/ironclaw/.ironclaw
+      # Optional: Mount local Ollama socket if using local LLM
+      # - /var/run/ollama:/var/run/ollama
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ironclaw-network
+    restart: unless-stopped
+    # Skip onboarding if .env provides config; use 'ironclaw onboard' for interactive setup
+    command: ["--no-onboard"]
+    # Keep container running for REPL mode
+    stdin_open: true
+    tty: true
 
 volumes:
   pgdata:
+    driver: local
+  ironclaw-data:
+    driver: local
+
+networks:
+  ironclaw-network:
+    driver: bridge

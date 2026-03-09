@@ -1,0 +1,126 @@
+# IronClaw All-in-One Container
+# Includes PostgreSQL with pgvector + IronClaw application
+#
+# Build:
+#   docker build --platform linux/amd64 -f Dockerfile.all-in-one -t ironclaw-docker:latest .
+#
+# Run:
+#   docker run -d -p 3231:3000 -p 5433:5432 --name ironclaw-docker ironclaw-docker:latest
+
+FROM postgres:16-bookworm
+
+# Install required packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libssl3 pkg-config libssl-dev cmake gcc g++ \
+    curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pgvector extension
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-16-pgvector \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.92.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install WASM target and tools
+RUN rustup target add wasm32-wasip2 && cargo install wasm-tools
+
+# Build IronClaw
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY build.rs build.rs
+COPY src/ src/
+COPY tests/ tests/
+COPY migrations/ migrations/
+COPY registry/ registry/
+COPY channels-src/ channels-src/
+COPY wit/ wit/
+COPY providers.json providers.json
+
+RUN cargo build --release --bin ironclaw
+
+# Move binary to system path
+RUN cp /app/target/release/ironclaw /usr/local/bin/ironclaw && chmod +x /usr/local/bin/ironclaw
+
+# Create ironclaw user
+RUN useradd -m -u 1000 -s /bin/bash ironclaw
+
+# Setup PostgreSQL for IronClaw
+ENV POSTGRES_DB=ironclaw
+ENV POSTGRES_USER=ironclaw
+ENV POSTGRES_PASSWORD=ironclaw
+ENV PGDATA=/var/lib/postgresql/data
+
+# IronClaw environment
+ENV DATABASE_URL=postgres://ironclaw:ironclaw@localhost:5432/ironclaw
+ENV GATEWAY_ENABLED=true
+ENV GATEWAY_HOST=0.0.0.0
+ENV GATEWAY_PORT=3000
+ENV GATEWAY_AUTH_TOKEN=dev-token-change-in-production
+ENV GATEWAY_USER_ID=default
+ENV AGENT_NAME=ironclaw
+ENV AGENT_MAX_PARALLEL_JOBS=5
+ENV AGENT_JOB_TIMEOUT_SECS=3600
+ENV AGENT_USE_PLANNING=true
+ENV HEARTBEAT_ENABLED=false
+ENV SANDBOX_ENABLED=false
+ENV IRONCLAW_IN_DOCKER=true
+ENV RUST_LOG=ironclaw=info
+
+# Copy startup script
+COPY <<'EOF' /usr/local/bin/start-ironclaw.sh
+#!/bin/bash
+set -e
+
+# Initialize PostgreSQL data directory if empty
+if [ -z "$(ls -A $PGDATA)" ]; then
+    echo "Initializing PostgreSQL data directory..."
+    initdb -D $PGDATA --auth=trust --auth-host=md5 --encoding=UTF8 --locale=en_US.UTF-8
+    
+    # Configure PostgreSQL to allow connections
+    echo "host all all 0.0.0.0/0 md5" >> $PGDATA/pg_hba.conf
+    echo "listen_addresses = '*'" >> $PGDATA/postgresql.conf
+fi
+
+# Start PostgreSQL
+echo "Starting PostgreSQL..."
+pg_ctl -D $PGDATA start
+
+# Wait for PostgreSQL to be ready
+echo "Waiting for PostgreSQL..."
+until pg_isready -U $POSTGRES_USER -d $POSTGRES_DB; do
+  sleep 1
+done
+
+# Create user and database if they don't exist
+psql -U postgres -tc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'" | grep -q 1 || \
+    psql -U postgres -c "CREATE USER $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD';"
+psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 || \
+    psql -U postgres -c "CREATE DATABASE $POSTGRES_DB OWNER $POSTGRES_USER;"
+
+# Enable pgvector extension
+echo "Enabling pgvector extension..."
+psql -U $POSTGRES_USER -d $POSTGRES_DB -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
+
+# Run database migrations
+echo "Running database migrations..."
+# Note: IronClaw handles migrations automatically on startup
+
+# Start IronClaw
+echo "Starting IronClaw..."
+exec ironclaw --no-onboard
+EOF
+
+RUN chmod +x /usr/local/bin/start-ironclaw.sh
+
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pg_isready -U ironclaw -d ironclaw && curl -f http://localhost:3000/health || exit 1
+
+# Expose ports
+EXPOSE 3000 5432
+
+# Start everything
+ENTRYPOINT ["/usr/local/bin/start-ironclaw.sh"]
