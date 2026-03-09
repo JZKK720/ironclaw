@@ -2,7 +2,7 @@
   <img src="ironclaw.png?v=2" alt="IronClaw" width="200"/>
 </p>
 
-<h1 align="center">IronClaw</h1>
+<h1 align="center">IronClaw Docker &amp; Shell Edition</h1>
 
 <p align="center">
   <strong>Your secure personal AI assistant, always on your side</strong>
@@ -73,61 +73,127 @@ IronClaw is the AI assistant you can actually trust with your personal and profe
 
 ### Prerequisites
 
-- Rust 1.85+
-- PostgreSQL 15+ with [pgvector](https://github.com/pgvector/pgvector) extension
-- NEAR AI account (authentication handled via setup wizard)
+- **Docker Desktop** (Windows/macOS/Linux)
+- **PowerShell** (Windows) or **Bash** (macOS/Linux) for setup scripts
+- LLM provider account (OpenAI, Anthropic, or OpenAI-compatible endpoint)
 
-## Download or Build
+### Quick Start (Windows - One Command)
 
-Visit [Releases page](https://github.com/nearai/ironclaw/releases/) to see the latest updates.
+```powershell
+# Clone and setup in one go
+git clone https://github.com/YOUR_USERNAME/ironclaw.git
+cd ironclaw
+.\scripts\full-setup.ps1
+```
+
+This will:
+1. Pull Docker base images
+2. Build the IronClaw Docker image (15-25 min)
+3. Start PostgreSQL and IronClaw services
+
+After setup completes, access IronClaw at **http://localhost:3231**
+
+### Step-by-Step Setup (Windows)
 
 <details>
-  <summary>Install via Windows Installer (Windows)</summary>
+  <summary>Click to expand Windows setup steps</summary>
 
-Download the [Windows Installer](https://github.com/nearai/ironclaw/releases/latest/download/ironclaw-x86_64-pc-windows-msvc.msi) and run it.
+**Step 1: Build Docker Image** (one time, 15-25 min)
+```powershell
+.\scripts\build.ps1
+```
 
-</details>
+**Step 2: Configure IronClaw** (interactive onboarding)
+```powershell
+.\scripts\setup.ps1
+```
 
-<details>
-  <summary>Install via powershell script (Windows)</summary>
+Inside the container shell, run:
+```bash
+ironclaw onboard  # Configure LLM provider and authentication
+```
 
-```sh
-irm https://github.com/nearai/ironclaw/releases/latest/download/ironclaw-installer.ps1 | iex
+**Step 3: Start Services**
+```powershell
+.\scripts\start.ps1
+```
+
+Access URLs:
+- **Web Gateway**: http://localhost:3231
+- **HTTP Webhook**: http://localhost:8281
+- **PostgreSQL**: localhost:5433
+
+**Stop Services**
+```powershell
+.\scripts\stop.ps1
 ```
 
 </details>
 
-<details>
-  <summary>Install via shell script (macOS, Linux, Windows/WSL)</summary>
-
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/nearai/ironclaw/releases/latest/download/ironclaw-installer.sh | sh
-```
-</details>
+### macOS / Linux Setup
 
 <details>
-  <summary>Install via Homebrew (macOS/Linux)</summary>
+  <summary>Click to expand macOS/Linux setup steps</summary>
 
-```sh
-brew install ironclaw
-```
-
-</details>
-
-<details>
-  <summary>Compile the source code (Cargo on Windows, Linux, macOS)</summary>
-
-Install it with `cargo`, just make sure you have [Rust](https://rustup.rs) installed on your computer.
+**Option 1: Docker Setup (Recommended)**
 
 ```bash
-# Clone the repository
-git clone https://github.com/nearai/ironclaw.git
-cd ironclaw
+# Build Docker image
+docker build --platform linux/amd64 -t ironclaw:latest .
 
-# Build
+# Start services
+docker compose up -d
+
+# For interactive onboarding
+docker run -it --rm \
+    -p 3231:3000 \
+    -p 8281:8080 \
+    -e DATABASE_URL=postgres://ironclaw:ironclaw@host.docker.internal:5433/ironclaw \
+    -v ironclaw-data:/home/ironclaw/.ironclaw \
+    ironclaw:latest
+# Then run: ironclaw onboard
+```
+
+**Option 2: Native Development Setup**
+
+For development without Docker:
+
+```bash
+# Run developer setup script
+./scripts/dev-setup.sh
+
+# This will:
+# - Install wasm32-wasip2 target
+# - Install wasm-tools
+# - Run cargo check and tests
+# - Install git hooks
+
+# Then build and run
 cargo build --release
+cargo run
+```
 
-# Run tests
+</details>
+
+### Development Setup (No Docker Required)
+
+<details>
+  <summary>Click to expand development setup</summary>
+
+For contributors who want to develop without Docker:
+
+**Prerequisites:**
+- Rust 1.85+
+- PostgreSQL 15+ with [pgvector](https://github.com/pgvector/pgvector) extension (optional, libsql used by default)
+
+```bash
+# Run the developer setup script
+./scripts/dev-setup.sh
+
+# Or manually:
+rustup target add wasm32-wasip2
+cargo install wasm-tools --locked
+cargo check
 cargo test
 ```
 
@@ -135,45 +201,58 @@ For **full release** (after modifying channel sources), run `./scripts/build-all
 
 </details>
 
-### Database Setup
-
-```bash
-# Create database
-createdb ironclaw
-
-# Enable pgvector
-psql ironclaw -c "CREATE EXTENSION IF NOT EXISTS vector;"
-```
-
 ## Configuration
 
-Run the setup wizard to configure IronClaw:
+### First-Time Setup
+
+After starting IronClaw for the first time, you need to configure your LLM provider:
+
+**Option 1: Interactive Onboarding (Recommended)**
 
 ```bash
+# If using Docker setup scripts, this runs inside the container
 ironclaw onboard
 ```
 
-The wizard handles database connection, NEAR AI authentication (via browser OAuth),
-and secrets encryption (using your system keychain). Settings are persisted in the
-connected database; bootstrap variables (e.g. `DATABASE_URL`, `LLM_BACKEND`) are
-written to `~/.ironclaw/.env` so they are available before the database connects.
+The wizard will guide you through:
+- Selecting your LLM provider (OpenAI, Anthropic, OpenRouter, etc.)
+- Entering your API key
+- Configuring optional features
 
-### Alternative LLM Providers
+**Option 2: Environment Variables**
 
-IronClaw defaults to NEAR AI but works with any OpenAI-compatible endpoint.
-Popular options include **OpenRouter** (300+ models), **Together AI**, **Fireworks AI**,
-**Ollama** (local), and self-hosted servers like **vLLM** or **LiteLLM**.
-
-Select *"OpenAI-compatible"* in the wizard, or set environment variables directly:
+Create a `.env` file in the project root:
 
 ```env
+# OpenAI
+LLM_BACKEND=openai
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-4o
+
+# Or Anthropic
+LLM_BACKEND=anthropic
+LLM_API_KEY=sk-ant-...
+LLM_MODEL=claude-sonnet-4-20250514
+
+# Or OpenAI-compatible (OpenRouter, Together AI, etc.)
 LLM_BACKEND=openai_compatible
 LLM_BASE_URL=https://openrouter.ai/api/v1
 LLM_API_KEY=sk-or-...
 LLM_MODEL=anthropic/claude-sonnet-4
 ```
 
-See [docs/LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md) for a full provider guide.
+### Available Scripts
+
+| Script | Purpose | Platform |
+|--------|---------|----------|
+| `scripts/full-setup.ps1` | One-click full setup | Windows |
+| `scripts/build.ps1` | Build Docker image | Windows |
+| `scripts/setup.ps1` | Interactive onboarding container | Windows |
+| `scripts/start.ps1` | Start all services | Windows |
+| `scripts/stop.ps1` | Stop all services | Windows |
+| `scripts/dev-setup.sh` | Native dev environment | macOS/Linux |
+
+See [scripts/README.md](scripts/README.md) for detailed script documentation.
 
 ## Security
 
@@ -269,14 +348,17 @@ External content passes through multiple security layers:
 ## Usage
 
 ```bash
-# First-time setup (configures database, auth, etc.)
-ironclaw onboard
-
-# Start interactive REPL
+# Interactive REPL (native build)
 cargo run
 
 # With debug logging
 RUST_LOG=ironclaw=debug cargo run
+
+# View Docker logs
+docker compose logs -f
+
+# Check service status
+docker compose ps
 ```
 
 ## Development
@@ -289,7 +371,6 @@ cargo fmt
 cargo clippy --all --benches --tests --examples --all-features
 
 # Run tests
-createdb ironclaw_test
 cargo test
 
 # Run specific test
