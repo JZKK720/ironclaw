@@ -1,8 +1,13 @@
-# IronClaw Local Development Stack
+# IronClaw Docker & Shell Edition
 # Custom Port Mappings:
 #   - Web Gateway:     3231:3000
 #   - HTTP Webhook:    8281:8080
 #   - PostgreSQL:      5433:5432
+#
+# Features:
+#   - Docker restart enabled (IRONCLAW_IN_DOCKER=true)
+#   - Keychain bypass for container environment
+#   - Persistent volumes for data
 #
 # Usage:
 #   1. Build image: docker build --platform linux/amd64 -t ironclaw:latest .
@@ -47,6 +52,8 @@ services:
       SECRETS_MASTER_KEY: ironclaw-demo-master-key-32-chars-long-change-me-plz
       # Skip OS keychain in Docker
       IRONCLAW_SKIP_KEYCHAIN: "true"
+      # Enable Docker restart feature (/restart command)
+      IRONCLAW_IN_DOCKER: "true"
     volumes:
       # Persist IronClaw data
       - ironclaw-data:/home/ironclaw/.ironclaw
