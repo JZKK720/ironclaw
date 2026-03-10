@@ -540,12 +540,28 @@ async fn async_main() -> anyhow::Result<()> {
             }
         }
 
-        gateway_url = Some(format!(
-            "http://{}:{}/?token={}",
-            gw_config.host,
-            gw_config.port,
-            gw.auth_token()
-        ));
+        // Check for PUBLIC_GATEWAY_URL override (for Docker/reverse proxy setups)
+        let public_url = std::env::var("PUBLIC_GATEWAY_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|url| {
+                // Append token if not already present
+                if url.contains("?") {
+                    url
+                } else {
+                    format!("{}?token={}", url.trim_end_matches('/'), gw.auth_token())
+                }
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "http://{}:{}/?token={}",
+                    gw_config.host,
+                    gw_config.port,
+                    gw.auth_token()
+                )
+            });
+        
+        gateway_url = Some(public_url);
 
         tracing::info!("Web UI: http://{}:{}/", gw_config.host, gw_config.port);
 

@@ -54,6 +54,8 @@ services:
       IRONCLAW_SKIP_KEYCHAIN: "true"
       # Enable Docker restart feature (/restart command)
       IRONCLAW_IN_DOCKER: "true"
+      # Public gateway URL (shows correct port in boot screen)
+      PUBLIC_GATEWAY_URL: "http://localhost:3231"
     volumes:
       # Persist IronClaw data
       - ironclaw-data:/home/ironclaw/.ironclaw

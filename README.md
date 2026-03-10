@@ -128,6 +128,8 @@ Access URLs:
 - **HTTP Webhook**: http://localhost:8281
 - **PostgreSQL**: localhost:5433
 
+> **Note:** The boot screen shows `http://0.0.0.0:3000` (container-internal), but you access via `http://localhost:3231` (host-mapped). This is normal Docker behavior. The `PUBLIC_GATEWAY_URL` env var is set in `docker-compose.yml` to display the correct URL.
+
 **Stop Services**
 ```powershell
 .\scripts\stop.ps1
