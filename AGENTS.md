@@ -142,6 +142,7 @@ src/
 │   ├── provider.rs      # LlmProvider trait
 │   ├── rig_adapter.rs   # rig-core integration
 │   ├── nearai_chat.rs   # NEAR AI provider
+│   ├── model_pool.rs    # Multi-model pool configuration
 │   ├── anthropic_oauth.rs
 │   ├── bedrock.rs       # AWS Bedrock (optional feature)
 │   └── ...
@@ -433,6 +434,32 @@ AGENT_MAX_PARALLEL_JOBS=5
 # Web Gateway
 PUBLIC_GATEWAY_URL=http://localhost:3000
 ```
+
+### Model Pool Configuration (Multi-Model Support)
+
+IronClaw supports configuring multiple LLM models via environment variables for runtime switching:
+
+```bash
+# Define the model pool (comma-separated IDs)
+LLM_MODEL_POOL=primary,fallback,lmstudio
+
+# Set the active model
+LLM_MODEL_ACTIVE=primary
+
+# Configure each model
+LLM_MODEL_PRIMARY_BACKEND=ollama
+LLM_MODEL_PRIMARY_BASE_URL=http://localhost:11434
+LLM_MODEL_PRIMARY_MODEL=qwen3.5:9b
+
+LLM_MODEL_LMSTUDIO_BACKEND=openai_compatible
+LLM_MODEL_LMSTUDIO_BASE_URL=http://localhost:14321/v1
+LLM_MODEL_LMSTUDIO_MODEL=qwen3.5:9b
+```
+
+When `LLM_MODEL_POOL` is set, it takes priority over `LLM_BACKEND`. The model pool enables:
+- **Runtime model switching** without restart (via Web UI or CLI)
+- **Automatic fallback chain** through the pool order
+- **Multiple provider types** (Ollama, LM Studio, OpenAI, etc.)
 
 ## Security Considerations
 
