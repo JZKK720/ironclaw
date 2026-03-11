@@ -75,6 +75,10 @@ pub struct Settings {
     /// Currently selected model.
     #[serde(default)]
     pub selected_model: Option<String>,
+    
+    /// Currently active model ID from the model pool.
+    #[serde(default)]
+    pub selected_model_pool_id: Option<String>,
 
     // === Step 5: Embeddings ===
     /// Embeddings configuration.

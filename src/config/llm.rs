@@ -6,6 +6,7 @@ use crate::bootstrap::ironclaw_base_dir;
 use crate::config::helpers::{optional_env, parse_optional_env};
 use crate::error::ConfigError;
 use crate::llm::config::*;
+use crate::llm::model_pool::ModelPool;
 use crate::llm::registry::{ProviderProtocol, ProviderRegistry};
 use crate::llm::session::SessionConfig;
 use crate::settings::Settings;
@@ -55,6 +56,29 @@ impl LlmConfig {
 
     pub(crate) fn resolve(settings: &Settings) -> Result<Self, ConfigError> {
         let registry = ProviderRegistry::load();
+
+        // Check for model pool configuration first (Option A: multi-model support)
+        let model_pool = ModelPool::from_env(&registry)?;
+        
+        // If model pool is configured, use the active model from the pool
+        if let Some(active_entry) = model_pool.active() {
+            tracing::info!(
+                "Using model pool configuration: active_model={}",
+                active_entry.id
+            );
+            
+            return Ok(Self {
+                backend: active_entry.backend.clone(),
+                session: SessionConfig {
+                    auth_base_url: "https://private.near.ai".to_string(),
+                    session_path: default_session_path(),
+                },
+                nearai: active_entry.to_nearai_config(),
+                provider: Some(active_entry.to_registry_config()),
+                bedrock: None,
+                request_timeout_secs: active_entry.timeout_secs,
+            });
+        }
 
         // Determine backend: env var > settings > default ("nearai")
         let backend = if let Some(b) = optional_env("LLM_BACKEND")? {
