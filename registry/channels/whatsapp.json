@@ -19,7 +19,7 @@
   "artifacts": {
     "wasm32-wasip2": {
       "url": "https://github.com/nearai/ironclaw/releases/latest/download/whatsapp-wasm32-wasip2.tar.gz",
-      "sha256": "06bcf315df93af9f683134f4055eb810c602863d8c4a632e3733a10217cc5a89"
+      "sha256": null
     }
   },
   "auth_summary": {
