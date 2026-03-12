@@ -14,8 +14,9 @@ Write-Host ""
 Write-Host "This script will:" -ForegroundColor White
 Write-Host "  1. Pull base Docker images" -ForegroundColor Gray
 Write-Host "  2. Build IronClaw Docker image" -ForegroundColor Gray
-Write-Host "  3. Start PostgreSQL" -ForegroundColor Gray
-Write-Host "  4. Start IronClaw web gateway" -ForegroundColor Gray
+Write-Host "  3. Create .env file (from .env.test if available, or .env.example)" -ForegroundColor Gray
+Write-Host "  4. Start PostgreSQL" -ForegroundColor Gray
+Write-Host "  5. Start IronClaw web gateway" -ForegroundColor Gray
 Write-Host ""
 
 $confirm = Read-Host "Continue? (y/N)"

@@ -25,9 +25,16 @@ if (-not (Test-Path "docker-compose.yml")) {
 
 # Check .env file exists (warn but don't fail - IronClaw can use env vars directly)
 if (-not (Test-Path ".env")) {
-    Write-Host "⚠ .env file not found!" -ForegroundColor Yellow
-    Write-Host "  IronClaw will use environment variables." -ForegroundColor Gray
-    Write-Host "  Create .env file or ensure required vars are set." -ForegroundColor Gray
+    # Auto-create from .env.test if available, otherwise from .env.example
+    if (Test-Path ".env.test") {
+        Write-Host "⚠ .env not found, using .env.test template..." -ForegroundColor Yellow
+        Copy-Item .env.test .env
+        Write-Host "  ✓ Created .env from .env.test" -ForegroundColor Green
+    } else {
+        Write-Host "⚠ .env file not found!" -ForegroundColor Yellow
+        Write-Host "  IronClaw will use environment variables." -ForegroundColor Gray
+        Write-Host "  Create .env file, use .env.test for test build, or set required vars." -ForegroundColor Gray
+    }
     Write-Host ""
 }
 
