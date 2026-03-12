@@ -84,6 +84,8 @@ IronClaw is the AI assistant you can actually trust with your personal and profe
 
 ### Quick Start (Windows - One Command)
 
+**Fastest way to get started:**
+
 ```powershell
 # Clone and setup in one go
 git clone https://github.com/YOUR_USERNAME/ironclaw.git
@@ -94,41 +96,79 @@ cd ironclaw
 This will:
 1. Pull Docker base images
 2. Build the IronClaw Docker image (15-25 min)
-3. Start PostgreSQL and IronClaw services
+3. Create `.env` file from `.env.test` (auto-detected) or `.env.example` template
+4. Start PostgreSQL and IronClaw services
 
-After setup completes, access IronClaw at **http://localhost:3231**
+After setup completes, you'll see the interactive onboarding wizard. Configure your LLM provider (OpenAI, Anthropic, Ollama, etc.) and you're ready to go!
+
+**Access IronClaw at:** http://localhost:3231
+
+> **Tip:** If you're running **Ollama or LM Studio on your host machine**, they'll be automatically accessible from inside Docker via `http://host.docker.internal:PORT`. No additional networking setup needed!
 
 ### Step-by-Step Setup (Windows)
 
 <details>
-  <summary>Click to expand Windows setup steps</summary>
+  <summary>Click to expand for detailed setup steps (alternative to full-setup.ps1)</summary>
 
 **Step 1: Build Docker Image** (one time, 15-25 min)
 ```powershell
 .\scripts\build.ps1
 ```
 
-**Step 2: Configure IronClaw** (interactive onboarding)
+**Step 2: Create Configuration File**
+
+Create `.env` file in the project root. Choose one:
+
+- **Option A (Easiest for repeatability)** - Use the test configuration template:
+  ```powershell
+  Copy-Item .env.test .env
+  # Edit .env with your LLM credentials and custom settings
+  ```
+
+- **Option B (Fresh configuration)** - Start from the example template:
+  ```powershell
+  Copy-Item .env.example .env
+  # Edit .env with your LLM provider, database, and tunnel settings
+  ```
+
+For reference, `.env.test` includes:
+- Database: `postgres://ironclaw:ironclaw@postgres:5432/ironclaw` (Docker Compose)
+- Secrets Master Key: Demo key for encryption (safe for testing)
+- Gateway Token: Dev token
+- Heartbeat & LLM config: Commented out (configured via wizard)
+
+**Step 3: Configure IronClaw** (interactive onboarding)
 ```powershell
 .\scripts\setup.ps1
 ```
 
-Inside the container shell, run:
-```bash
-ironclaw onboard  # Configure LLM provider and authentication
-```
+This will:
+- Check Docker and PostgreSQL status
+- Start an interactive shell inside the container
+- Run the onboarding wizard: `ironclaw onboard`
 
-**Step 3: Start Services**
+Configure your LLM provider (OpenAI, Anthropic, Ollama, NEAR AI, etc.), authentication, and channels.
+
+**Step 4: Start Services**
 ```powershell
 .\scripts\start.ps1
 ```
 
-Access URLs:
+This will automatically detect `.env.test` if `.env` doesn't exist and create one for you.
+
+**Access IronClaw:**
 - **Web Gateway**: http://localhost:3231
 - **HTTP Webhook**: http://localhost:8281
 - **PostgreSQL**: localhost:5433
 
-> **Note:** The boot screen shows `http://0.0.0.0:3000` (container-internal), but you access via `http://localhost:3231` (host-mapped). This is normal Docker behavior. The `PUBLIC_GATEWAY_URL` env var is set in `docker-compose.yml` to display the correct URL.
+> **Docker Networking Tip:** If you're running **Ollama, LM Studio, or other services on your host machine**, update your `.env` to use `http://host.docker.internal:PORT` instead of `http://localhost:PORT`:
+> ```bash
+> # In .env for Docker containers to reach host services:
+> LLM_BASE_URL=http://host.docker.internal:11434          # Ollama
+> LLM_BASE_URL=http://host.docker.internal:1234/v1        # LM Studio
+> DATABASE_URL=postgres://user:pass@host.docker.internal:5433/ironclaw  # PostgreSQL
+> ```
+> This is pre-configured in `.env.example` as the Docker-native networking pattern.
 
 **Stop Services**
 ```powershell
@@ -145,20 +185,37 @@ Access URLs:
 **Option 1: Docker Setup (Recommended)**
 
 ```bash
-# Build Docker image
-docker build --platform linux/amd64 -t ironclaw:latest .
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/ironclaw.git
+cd ironclaw
 
-# Start services
+# Create .env from template
+cp .env.example .env
+# Edit .env with your LLM credentials
+
+# Build and start services
+docker build --platform linux/amd64 -t ironclaw:latest .
 docker compose up -d
 
-# For interactive onboarding
-docker run -it --rm \
-    -p 3231:3000 \
-    -p 8281:8080 \
-    -e DATABASE_URL=postgres://ironclaw:ironclaw@host.docker.internal:5433/ironclaw \
-    -v ironclaw-data:/home/ironclaw/.ironclaw \
-    ironclaw:latest
-# Then run: ironclaw onboard
+# For interactive onboarding in the container
+docker exec -it ironclaw-app ironclaw onboard
+```
+
+**Docker Networking:** If running Ollama or LM Studio on your local machine, update `.env`:
+```bash
+# Access host services from Docker containers
+LLM_BASE_URL=http://host.docker.internal:11434          # Ollama
+LLM_BASE_URL=http://host.docker.internal:1234/v1        # LM Studio
+DATABASE_URL=postgres://user:pass@host.docker.internal:5433/ironclaw
+```
+
+On Linux, you may need to use the actual host IP instead of `host.docker.internal`:
+```bash
+# Find your host IP
+hostname -I | awk '{print $1}'
+
+# Then use it in .env
+LLM_BASE_URL=http://192.168.1.100:11434  # Replace with your IP
 ```
 
 **Option 2: Native Development Setup**
@@ -252,12 +309,20 @@ LLM_MODEL=anthropic/claude-sonnet-4
 
 | Script | Purpose | Platform |
 |--------|---------|----------|
-| `scripts/full-setup.ps1` | One-click full setup | Windows |
-| `scripts/build.ps1` | Build Docker image | Windows |
-| `scripts/setup.ps1` | Interactive onboarding container | Windows |
-| `scripts/start.ps1` | Start all services | Windows |
+| `scripts/full-setup.ps1` | **Recommended:** One-click full setup (build + configure + start) | Windows |
+| `scripts/build.ps1` | Build Docker image with pre-compiled WASM extensions | Windows |
+| `scripts/setup.ps1` | Interactive onboarding container shell | Windows |
+| `scripts/start.ps1` | Start all services (auto-detects `.env.test`) | Windows |
 | `scripts/stop.ps1` | Stop all services | Windows |
-| `scripts/dev-setup.sh` | Native dev environment | macOS/Linux |
+| `scripts/dev-setup.sh` | Native dev environment setup | macOS/Linux |
+
+### Configuration Files
+
+- **`.env.example`** - Public template with safe placeholders; includes Docker networking hints
+- **`.env.test`** - Test/dev configuration template with demo credentials (git-ignored)
+- **`.env`** - Your local configuration (git-ignored, created automatically from `.env.test` or `.env.example`)
+
+When you run `scripts/start.ps1`, it will automatically detect `.env.test` and auto-create `.env` if it doesn't exist, making setup repeatable across multiple builds.
 
 See [scripts/README.md](scripts/README.md) for detailed script documentation.
 
