@@ -96,9 +96,6 @@ struct StoreData {
     /// Pre-resolved credentials for automatic host-based injection.
     /// Applied by matching URL host against each credential's host_patterns.
     host_credentials: Vec<ResolvedHostCredential>,
-    /// Dedicated tokio runtime for HTTP requests, lazily initialized.
-    /// Reused across multiple `http_request` calls within one execution.
-    http_runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl StoreData {
@@ -118,7 +115,6 @@ impl StoreData {
             table: ResourceTable::new(),
             credentials,
             host_credentials,
-            http_runtime: None,
         }
     }
 
@@ -330,22 +326,11 @@ impl near::agent::host::Host for StoreData {
         // Resolve hostname and reject private/internal IPs to prevent DNS rebinding.
         reject_private_ip(&url)?;
 
-        // Make HTTP request using a dedicated single-threaded runtime.
-        // We're inside spawn_blocking, so we can't rely on the main runtime's
-        // I/O driver (it may be busy with WASM compilation or other startup work).
-        // A dedicated runtime gives us our own I/O driver and avoids contention.
-        // The runtime is lazily created and reused across calls within one execution.
-        if self.http_runtime.is_none() {
-            self.http_runtime = Some(
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("Failed to create HTTP runtime: {e}"))?,
-            );
-        }
-        let rt = self.http_runtime.as_ref().expect("just initialized");
-        let result = rt.block_on(async {
-            let client = reqwest::Client::builder()
+        // Make HTTP request directly with reqwest's blocking client.
+        // WASM tool execution already runs inside spawn_blocking, so a nested
+        // Tokio runtime is unnecessary and can hang some HTTPS requests.
+        let result = (|| {
+            let client = reqwest::blocking::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
@@ -369,11 +354,9 @@ impl near::agent::host::Host for StoreData {
                 request = request.body(body_bytes);
             }
 
-            // Caller-specified timeout (default 30s, max 5min)
             let timeout_ms = timeout_ms.unwrap_or(30_000).min(300_000) as u64;
             let timeout = Duration::from_millis(timeout_ms);
-            let response = request.timeout(timeout).send().await.map_err(|e| {
-                // Walk the full error chain for the actual root cause
+            let response = request.timeout(timeout).send().map_err(|e| {
                 let mut chain = format!("HTTP request failed: {}", e);
                 let mut source = std::error::Error::source(&e);
                 while let Some(cause) = source {
@@ -409,7 +392,6 @@ impl near::agent::host::Host for StoreData {
             // Read body with a size cap to prevent memory exhaustion.
             let body = response
                 .bytes()
-                .await
                 .map_err(|e| format!("Failed to read response body: {}", e))?;
             if body.len() > max_response {
                 return Err(format!(
@@ -432,7 +414,7 @@ impl near::agent::host::Host for StoreData {
                 headers_json,
                 body,
             })
-        });
+        })();
 
         // Redact credentials from error messages before returning to WASM
         result.map_err(|e| self.redact_credentials(&e))

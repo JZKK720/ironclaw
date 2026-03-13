@@ -102,9 +102,6 @@ struct ChannelStoreData {
     host_credentials: Vec<ResolvedHostCredential>,
     /// Pairing store for DM pairing (guest access control).
     pairing_store: Arc<PairingStore>,
-    /// Dedicated tokio runtime for HTTP requests, lazily initialized.
-    /// Reused across multiple `http_request` calls within one execution.
-    http_runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl ChannelStoreData {
@@ -127,7 +124,6 @@ impl ChannelStoreData {
             credentials,
             host_credentials,
             pairing_store,
-            http_runtime: None,
         }
     }
 
@@ -385,22 +381,12 @@ impl near::agent::channel_host::Host for ChannelStoreData {
             .map(|h| h.max_response_bytes)
             .unwrap_or(10 * 1024 * 1024);
 
-        // Make the HTTP request using a dedicated single-threaded runtime.
-        // We're inside spawn_blocking, so we can't rely on the main runtime's
-        // I/O driver (it may be busy with WASM compilation or other startup work).
-        // A dedicated runtime gives us our own I/O driver and avoids contention.
-        // The runtime is lazily created and reused across calls within one execution.
-        if self.http_runtime.is_none() {
-            self.http_runtime = Some(
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("Failed to create HTTP runtime: {e}"))?,
-            );
-        }
-        let rt = self.http_runtime.as_ref().expect("just initialized");
-        let result = rt.block_on(async {
-            let client = reqwest::Client::builder()
+        // Make the HTTP request directly with reqwest's blocking client.
+        // WASM callbacks already run inside spawn_blocking, so a nested Tokio
+        // runtime is unnecessary and can hang certain HTTPS requests during
+        // channel startup. The blocking client matches the execution model here.
+        let result = (|| {
+            let client = reqwest::blocking::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
@@ -415,23 +401,17 @@ impl near::agent::channel_host::Host for ChannelStoreData {
                 _ => return Err(format!("Unsupported HTTP method: {}", method)),
             };
 
-            // Add headers
             for (key, value) in headers {
                 request = request.header(&key, &value);
             }
 
-            // Add body if present
             if let Some(body_bytes) = body {
                 request = request.body(body_bytes);
             }
 
-            // Send request with caller-specified timeout (default 30s, max 5min).
             let timeout_ms = timeout_ms.unwrap_or(30_000).min(300_000) as u64;
             let timeout = std::time::Duration::from_millis(timeout_ms);
-            let response = request.timeout(timeout).send().await.map_err(|e| {
-                // Walk the full error chain so we get the actual root cause
-                // (DNS, TLS, connection refused, etc.) instead of just
-                // "error sending request for url (...)".
+            let response = request.timeout(timeout).send().map_err(|e| {
                 let mut chain = format!("HTTP request failed: {}", e);
                 let mut source = std::error::Error::source(&e);
                 while let Some(cause) = source {
@@ -465,7 +445,6 @@ impl near::agent::channel_host::Host for ChannelStoreData {
             }
             let body = response
                 .bytes()
-                .await
                 .map_err(|e| format!("Failed to read response body: {}", e))?;
             if body.len() > max_response {
                 return Err(format!(
@@ -504,7 +483,7 @@ impl near::agent::channel_host::Host for ChannelStoreData {
                 headers_json,
                 body,
             })
-        });
+        })();
 
         // Scrub credential values from error messages before logging or returning
         // to WASM. reqwest::Error includes the full URL (with injected credentials)
@@ -4141,32 +4120,26 @@ mod tests {
         assert_eq!(result, 42);
     }
 
-    /// Verify a real HTTP request works using the dedicated-runtime pattern.
-    /// This catches DNS, TLS, and I/O driver issues that trivial tests miss.
+    /// Verify a real HTTP request works using reqwest's blocking client inside
+    /// spawn_blocking. This catches DNS, TLS, and HTTPS execution issues in the
+    /// same host-side model used by WASM channel callbacks.
     #[tokio::test]
     #[ignore] // requires network
-    async fn test_dedicated_runtime_real_http() {
+    async fn test_blocking_http_real_request_inside_spawn_blocking() {
         let result = tokio::task::spawn_blocking(|| {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
+            let client = reqwest::blocking::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
-                .expect("failed to build runtime");
-            rt.block_on(async {
-                let client = reqwest::Client::builder()
-                    .connect_timeout(std::time::Duration::from_secs(10))
-                    .build()
-                    .expect("failed to build client");
-                let resp = client
-                    .get("https://api.telegram.org/bot000/getMe")
-                    .timeout(std::time::Duration::from_secs(10))
-                    .send()
-                    .await;
-                match resp {
-                    Ok(r) => r.status().as_u16(),
-                    Err(e) if e.is_timeout() => panic!("request timed out: {e}"),
-                    Err(e) => panic!("unexpected error: {e}"),
-                }
-            })
+                .expect("failed to build client");
+            let resp = client
+                .get("https://api.telegram.org/bot000/getMe")
+                .timeout(std::time::Duration::from_secs(10))
+                .send();
+            match resp {
+                Ok(r) => r.status().as_u16(),
+                Err(e) if e.is_timeout() => panic!("request timed out: {e}"),
+                Err(e) => panic!("unexpected error: {e}"),
+            }
         })
         .await
         .expect("spawn_blocking panicked");

@@ -48,8 +48,8 @@ services:
     environment:
       # Override DATABASE_URL for Docker networking
       DATABASE_URL: postgres://ironclaw:ironclaw@postgres:5432/ironclaw
-      # Secrets master key (bypasses OS keychain in Docker)
-      SECRETS_MASTER_KEY: ironclaw-demo-master-key-32-chars-long-change-me-plz
+      # Bind the web gateway to all interfaces so the published Docker port works
+      GATEWAY_HOST: 0.0.0.0
       # Skip OS keychain in Docker
       IRONCLAW_SKIP_KEYCHAIN: "true"
       # Enable Docker restart feature (/restart command)

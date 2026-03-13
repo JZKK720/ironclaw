@@ -54,6 +54,10 @@ pub(crate) fn truncate_for_preview(output: &str, max_chars: usize) -> String {
     }
 }
 
+fn allows_agent_shutdown(channel: &str) -> bool {
+    channel == "repl"
+}
+
 /// Core dependencies for the agent.
 ///
 /// Bundles the shared components to reduce argument count.
@@ -892,7 +896,17 @@ impl Agent {
             Submission::JobCancel { job_id } => {
                 self.process_job_cancel(&message.user_id, &job_id).await
             }
-            Submission::Quit => return Ok(None),
+            Submission::Quit => {
+                if allows_agent_shutdown(&message.channel) {
+                    return Ok(None);
+                }
+
+                Ok(SubmissionResult::Ok {
+                    message: Some(
+                        "/quit is only supported in the local REPL. Stop the Docker container or service instead.".to_string(),
+                    ),
+                })
+            }
             Submission::SwitchThread { thread_id: target } => {
                 self.process_switch_thread(message, target).await
             }
@@ -965,7 +979,14 @@ impl Agent {
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_for_preview;
+    use super::{allows_agent_shutdown, truncate_for_preview};
+
+    #[test]
+    fn test_shutdown_allowed_only_for_repl() {
+        assert!(allows_agent_shutdown("repl"));
+        assert!(!allows_agent_shutdown("telegram"));
+        assert!(!allows_agent_shutdown("gateway"));
+    }
 
     #[test]
     fn test_truncate_short_input() {

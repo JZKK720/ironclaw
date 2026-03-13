@@ -862,7 +862,9 @@ impl SetupWizard {
             if let Ok(url) = std::env::var("DATABASE_URL") {
                 print_info("Using existing PostgreSQL configuration");
                 self.settings.database_backend = Some("postgres".to_string());
-                self.settings.database_url = Some(url);
+                self.settings.database_url = Some(url.clone());
+                self.test_database_connection_postgres(&url).await?;
+                self.run_migrations_postgres().await?;
                 return Ok(());
             }
             // Postgres configured but no URL — fall through to interactive
@@ -873,7 +875,9 @@ impl SetupWizard {
         if let Ok(url) = std::env::var("DATABASE_URL") {
             print_info("Using existing PostgreSQL configuration");
             self.settings.database_backend = Some("postgres".to_string());
-            self.settings.database_url = Some(url);
+            self.settings.database_url = Some(url.clone());
+            self.test_database_connection_postgres(&url).await?;
+            self.run_migrations_postgres().await?;
             return Ok(());
         }
 
