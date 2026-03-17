@@ -402,6 +402,10 @@ impl near::agent::channel_host::Host for ChannelStoreData {
         let result = rt.block_on(async {
             let client = reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
+                // Some bot/webhook endpoints intermittently close negotiated HTTP/2
+                // streams during startup. Force HTTP/1.1 for WASM channel host
+                // requests to keep channel bootstrap predictable.
+                .http1_only()
                 .build()
                 .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
@@ -4415,6 +4419,7 @@ mod tests {
             rt.block_on(async {
                 let client = reqwest::Client::builder()
                     .connect_timeout(std::time::Duration::from_secs(10))
+                    .http1_only()
                     .build()
                     .expect("failed to build client");
                 let resp = client
