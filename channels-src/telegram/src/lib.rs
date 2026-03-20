@@ -1226,6 +1226,14 @@ fn send_document(
 /// Image MIME types that Telegram's sendPhoto API supports.
 const PHOTO_MIME_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+/// Remove lightweight HTML artifacts that occasionally leak through tool/LLM output.
+///
+/// Telegram replies use Markdown mode, so raw `<sup>` tags have no rendering value and
+/// appear as stray literal text when they leak into the final response.
+fn sanitize_telegram_text(text: &str) -> String {
+    text.replace("<sup>", "").replace("</sup>", "")
+}
+
 /// Split `text` into chunks of at most `max_chars` Unicode scalar values.
 ///
 /// Prefers paragraph breaks (`\n\n`), then single newlines, then hard-splits
@@ -1298,8 +1306,10 @@ fn send_response(
         return Ok(());
     }
 
+    let sanitized_content = sanitize_telegram_text(&response.content);
+
     // Split long responses into chunks to stay within Telegram's 4096-char limit.
-    let chunks = split_message(&response.content, TELEGRAM_MAX_MESSAGE_LEN);
+    let chunks = split_message(&sanitized_content, TELEGRAM_MAX_MESSAGE_LEN);
     for (i, chunk) in chunks.iter().enumerate() {
         // Only the first chunk replies to the original message.
         let reply_id = if i == 0 { reply_to_message_id } else { None };
@@ -2874,6 +2884,18 @@ mod tests {
     fn test_max_download_size_constant() {
         // Verify the constant is 20 MB, matching the Slack channel limit
         assert_eq!(MAX_DOWNLOAD_SIZE_BYTES, 20 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_sanitize_telegram_text_strips_sup_tags() {
+        let text = "Alpha<sup>1</sup> Beta </sup> Gamma";
+        assert_eq!(sanitize_telegram_text(text), "Alpha1 Beta  Gamma");
+    }
+
+    #[test]
+    fn test_sanitize_telegram_text_leaves_normal_markdown() {
+        let text = "**bold** `code` [link](https://example.com)";
+        assert_eq!(sanitize_telegram_text(text), text);
     }
 
     #[test]
