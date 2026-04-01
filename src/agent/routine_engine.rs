@@ -97,6 +97,10 @@ pub(crate) fn routine_matches_message(routine: &Routine, message: &IncomingMessa
     true
 }
 
+fn trigger_uses_event_cache(trigger: &Trigger) -> bool {
+    matches!(trigger, Trigger::Event { .. } | Trigger::SystemEvent { .. })
+}
+
 /// The routine execution engine.
 pub struct RoutineEngine {
     config: RoutineConfig,
@@ -666,7 +670,7 @@ impl RoutineEngine {
             None
         };
 
-        if let Err(e) = self
+        let runtime_updated = match self
             .store
             .update_routine_runtime(
                 routine.id,
@@ -678,10 +682,25 @@ impl RoutineEngine {
             )
             .await
         {
-            tracing::error!(
-                routine = %routine.name,
-                "Failed to update routine runtime after dispatched run: {}", e
-            );
+            Ok(()) => true,
+            Err(e) => {
+                tracing::error!(
+                    routine = %routine.name,
+                    "Failed to update routine runtime after dispatched run: {}", e
+                );
+                false
+            }
+        };
+
+        if runtime_updated && trigger_uses_event_cache(&routine.trigger) {
+            update_cached_event_runtime(
+                self.event_cache.as_ref(),
+                routine.id,
+                now,
+                routine.run_count + 1,
+                new_failures,
+            )
+            .await;
         }
 
         // Persist result to the routine's conversation thread
@@ -812,6 +831,7 @@ impl RoutineEngine {
             tools: self.tools.clone(),
             safety: self.safety.clone(),
             sandbox_readiness: self.sandbox_readiness,
+            event_cache: Arc::clone(&self.event_cache),
         };
 
         tokio::spawn(async move {
@@ -897,6 +917,7 @@ impl RoutineEngine {
             tools: self.tools.clone(),
             safety: self.safety.clone(),
             sandbox_readiness: self.sandbox_readiness,
+            event_cache: Arc::clone(&self.event_cache),
         };
 
         tokio::spawn(async move {
@@ -951,6 +972,7 @@ impl RoutineEngine {
             tools: self.tools.clone(),
             safety: self.safety.clone(),
             sandbox_readiness: self.sandbox_readiness,
+            event_cache: Arc::clone(&self.event_cache),
         };
 
         // Record the run in DB, then spawn execution
@@ -1089,6 +1111,7 @@ struct EngineContext {
     tools: Arc<ToolRegistry>,
     safety: Arc<SafetyLayer>,
     sandbox_readiness: SandboxReadiness,
+    event_cache: Arc<RwLock<Vec<EventMatcher>>>,
 }
 
 /// Execute a routine run. Handles both lightweight and full_job modes.
@@ -1175,7 +1198,7 @@ async fn execute_routine(ctx: EngineContext, mut routine: Routine, run: RoutineR
         0
     };
 
-    if let Err(e) = ctx
+    let runtime_updated = match ctx
         .store
         .update_routine_runtime(
             routine.id,
@@ -1187,7 +1210,22 @@ async fn execute_routine(ctx: EngineContext, mut routine: Routine, run: RoutineR
         )
         .await
     {
-        tracing::error!(routine = %routine.name, "Failed to update runtime state: {}", e);
+        Ok(()) => true,
+        Err(e) => {
+            tracing::error!(routine = %routine.name, "Failed to update runtime state: {}", e);
+            false
+        }
+    };
+
+    if runtime_updated && trigger_uses_event_cache(&routine.trigger) {
+        update_cached_event_runtime(
+            ctx.event_cache.as_ref(),
+            routine.id,
+            now,
+            routine.run_count + 1,
+            new_failures,
+        )
+        .await;
     }
 
     // Persist routine result to its dedicated conversation thread
@@ -1234,6 +1272,27 @@ async fn execute_routine(ctx: EngineContext, mut routine: Routine, run: RoutineR
         thread_id.as_deref(),
     )
     .await;
+}
+
+async fn update_cached_event_runtime(
+    event_cache: &RwLock<Vec<EventMatcher>>,
+    routine_id: Uuid,
+    last_run_at: chrono::DateTime<Utc>,
+    run_count: u64,
+    consecutive_failures: u32,
+) {
+    let mut cache = event_cache.write().await;
+    for matcher in cache.iter_mut() {
+        let routine = match matcher {
+            EventMatcher::Message { routine, .. } | EventMatcher::System { routine } => routine,
+        };
+        if routine.id == routine_id {
+            routine.last_run_at = Some(last_run_at);
+            routine.run_count = run_count;
+            routine.consecutive_failures = consecutive_failures;
+            break;
+        }
+    }
 }
 
 /// Sanitize a routine name for use in workspace paths.
@@ -1613,13 +1672,23 @@ async fn execute_lightweight_with_tools(
     let mut total_input_tokens = 0;
     let mut total_output_tokens = 0;
 
-    // Create a minimal job context for tool execution with unique run ID
+    // Create a minimal job context for tool execution with unique run ID.
+    // Carry the routine's notify config in metadata so the message tool can
+    // resolve channel/target — mirrors the full-job path in execute_full_job().
     let run_id = Uuid::new_v4();
+    let mut lw_metadata = serde_json::json!({
+        "owner_id": routine.user_id
+    });
+    if let Some(channel) = &routine.notify.channel {
+        lw_metadata["notify_channel"] = serde_json::json!(channel);
+    }
+    lw_metadata["notify_user"] = serde_json::json!(&routine.notify.user);
     let job_ctx = JobContext {
         job_id: run_id,
         user_id: routine.user_id.clone(),
         title: "Lightweight Routine".to_string(),
         description: routine.name.clone(),
+        metadata: lw_metadata,
         ..Default::default()
     };
     let allowed_tools =
@@ -2574,5 +2643,32 @@ mod tests {
         let result = sanitize_summary(&s);
         assert!(result.len() <= 503);
         assert!(result.ends_with("..."));
+    }
+
+    /// Regression: lightweight routines must carry notify metadata in JobContext
+    /// so the message tool can route to the correct channel. Previously,
+    /// `..Default::default()` left metadata as null, causing messages to land
+    /// in the user's DM instead of the originating Slack channel.
+    #[test]
+    fn test_build_lightweight_prompt_preserves_notify_config() {
+        let notify = NotifyConfig {
+            channel: Some("slack-relay".to_string()),
+            user: Some("C088K6C3SQZ".to_string()),
+            on_attention: true,
+            on_failure: true,
+            on_success: false,
+        };
+
+        let prompt =
+            super::build_lightweight_prompt("Send Ping in this channel.", &[], None, &notify, true);
+
+        assert!(
+            prompt.contains("slack-relay"),
+            "prompt should mention configured delivery channel: {prompt}",
+        );
+        assert!(
+            prompt.contains("C088K6C3SQZ"),
+            "prompt should mention configured delivery target: {prompt}",
+        );
     }
 }
