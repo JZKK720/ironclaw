@@ -1,0 +1,53 @@
+# IronClaw v0.24 Fresh Build - Port Configuration Override
+# This override ensures v0.24 runs in PARALLEL with v0.19 (no port conflicts)
+# 
+# v0.19 (OLD) runs at:
+#   - HTTP: 0.0.0.0:3231 -> 3000
+#   - WebSocket: 0.0.0.0:8281 -> 8080
+#
+# v0.24 (NEW) will run at:
+#   - HTTP: 0.0.0.0:3232 -> 3000
+#   - WebSocket: 0.0.0.0:8282 -> 8080
+#   - Shared PostgreSQL: 127.0.0.1:5432
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d ironclaw
+#
+# To switch back to v0.19:
+#   docker-compose -f docker-compose.yml down
+#   docker run -d --name ironclaw-v0.19-backup ... (old container command)
+
+services:
+  ironclaw:
+    image: ironclaw:v0.24-fresh
+    container_name: ironclaw-v0.24-fresh
+    restart: unless-stopped
+    ports:
+      # v0.24 on different ports to avoid conflicting with v0.19
+      - "0.0.0.0:3232:3000"   # HTTP Gateway (v0.19 is on 3231)
+      - "0.0.0.0:8282:8080"   # WebSocket (v0.19 is on 8281)
+    environment:
+      RUST_LOG: ironclaw=info
+      # Use shared PostgreSQL database (ironclaw-postgres-1 service)
+      DATABASE_URL: postgres://ironclaw:ironclaw@postgres:5432/ironclaw
+      DATABASE_BACKEND: postgres
+      # Pre-set secrets master key to bypass Docker keychain issue
+      # Generated: 2025-04-02
+      SECRETS_MASTER_KEY: "bcc438e9fad62c043ad3ed29be1fc18209e408e863b8db134f6bf0ba6aa51d81"
+    volumes:
+      # Mount .ironclaw for fresh onboarding and data persistence
+      - ./extensions/ironclaw-home:/home/ironclaw/.ironclaw
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ironclaw-network
+
+  postgres:
+    # Use existing postgres service from docker-compose.yml
+    networks:
+      - ironclaw-network
+
+networks:
+  ironclaw-network:
+    driver: bridge
