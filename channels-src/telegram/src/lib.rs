@@ -1204,6 +1204,14 @@ fn write_multipart_file(
 /// Image MIME types that Telegram's sendPhoto API supports.
 const PHOTO_MIME_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+/// Remove lightweight HTML artifacts that occasionally leak through tool or LLM output.
+///
+/// Telegram replies use Markdown mode, so raw `<sup>` tags have no rendering value and
+/// show up as visible noise when they leak into the final response.
+fn sanitize_telegram_text(text: &str) -> String {
+    text.replace("<sup>", "").replace("</sup>", "")
+}
+
 /// Audio MIME types that Telegram's sendVoice API supports (ogg/opus container).
 const VOICE_MIME_TYPES: &[&str] = &["audio/ogg", "audio/opus"];
 
@@ -1414,8 +1422,10 @@ fn send_response(
         return Ok(());
     }
 
+    let sanitized_content = sanitize_telegram_text(&response.content);
+
     // Split large messages into chunks that fit Telegram's limit.
-    let chunks = split_message(&response.content);
+    let chunks = split_message(&sanitized_content);
     let total = chunks.len();
 
     // The first chunk replies to the original message; subsequent chunks
@@ -3183,5 +3193,17 @@ mod tests {
         );
         assert_eq!(classify_attachment("audio/mpeg"), AttachmentKind::Document);
         assert_eq!(classify_attachment("video/mp4"), AttachmentKind::Document);
+    }
+
+    #[test]
+    fn test_sanitize_telegram_text_strips_sup_tags() {
+        let text = "Alpha<sup>1</sup> Beta </sup> Gamma";
+        assert_eq!(sanitize_telegram_text(text), "Alpha1 Beta  Gamma");
+    }
+
+    #[test]
+    fn test_sanitize_telegram_text_leaves_normal_markdown() {
+        let text = "**bold** `code` [link](https://example.com)";
+        assert_eq!(sanitize_telegram_text(text), text);
     }
 }

@@ -1198,6 +1198,14 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn current_dir_command() -> &'static str {
+        if cfg!(target_os = "windows") {
+            "cd"
+        } else {
+            "pwd"
+        }
+    }
+
     async fn execute_shell(
         tool: &ShellTool,
         params: serde_json::Value,
@@ -1236,7 +1244,7 @@ mod tests {
             let result = execute_shell(
                 &tool,
                 serde_json::json!({
-                    "command": "pwd",
+                    "command": current_dir_command(),
                     "workdir": workdir
                 }),
             )
@@ -1743,16 +1751,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_large_output_command() {
-        let tool = ShellTool::new().with_timeout(Duration::from_secs(10));
+        let temp_dir = TempDir::new().unwrap();
+        let large_file = temp_dir.path().join("large.txt");
+        std::fs::write(&large_file, "A".repeat(131072)).unwrap();
+
+        let tool = ShellTool::new()
+            .with_timeout(Duration::from_secs(10))
+            .with_working_dir(temp_dir.path().to_path_buf());
         let ctx = JobContext::default();
+        let command = if cfg!(target_os = "windows") {
+            "type large.txt"
+        } else {
+            "cat large.txt"
+        };
 
         // Generate output larger than OS pipe buffer (64KB on Linux, 16KB on macOS).
         // Without draining pipes before wait(), this would deadlock.
         let result = tool
-            .execute(
-                serde_json::json!({"command": "python3 -c \"print('A' * 131072)\""}),
-                &ctx,
-            )
+            .execute(serde_json::json!({"command": command}), &ctx)
             .await
             .unwrap();
 

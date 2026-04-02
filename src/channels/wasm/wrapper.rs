@@ -4418,14 +4418,13 @@ fn read_attachments(paths: &[String]) -> Result<Vec<wit_channel::Attachment>, St
 
     let mut attachments = Vec::with_capacity(paths.len());
     let mut total_bytes: u64 = 0;
-    let tmp_base = std::path::Path::new("/tmp");
     let home_base = dirs::home_dir()
         .map(|h| h.join(".ironclaw"))
         .unwrap_or_default();
 
     for path in paths {
         // Validate paths are under /tmp/ or ~/.ironclaw/ to prevent arbitrary file reads
-        let validated = crate::tools::builtin::path_utils::validate_path(path, Some(tmp_base))
+        let validated = crate::tools::builtin::path_utils::validate_tool_temp_path(path)
             .or_else(|_| crate::tools::builtin::path_utils::validate_path(path, Some(&home_base)));
         let validated = validated.map_err(|e| {
             format!(

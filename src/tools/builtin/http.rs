@@ -91,20 +91,26 @@ impl HttpTool {
 
 /// Validate and resolve a `save_to` path, ensuring it stays under `/tmp/`.
 ///
-/// Uses `path_utils::validate_path` with `/tmp` as the base directory to catch
-/// traversal attacks like `/tmp/../../etc/passwd` and symlink escapes.
+/// On Windows, `/tmp/...` is treated as a portable alias for the system temp
+/// directory so prompts can keep using the same convention cross-platform.
 /// Creates parent directories only after validation succeeds.
 fn validate_save_to_path(save_to: &str) -> Result<std::path::PathBuf, ToolError> {
-    // Quick prefix check before doing any fs work
-    if !save_to.starts_with("/tmp/") {
+    let validated = match crate::tools::builtin::path_utils::validate_tool_temp_path(save_to) {
+        Ok(path) => path,
+        Err(ToolError::InvalidParameters(_)) => {
+            return Err(ToolError::InvalidParameters(
+                "save_to path must be under /tmp/".to_string(),
+            ));
+        }
+        Err(err) => return Err(err),
+    };
+
+    if !cfg!(target_os = "windows") && !save_to.starts_with("/tmp/") {
         return Err(ToolError::InvalidParameters(
             "save_to path must be under /tmp/".to_string(),
         ));
     }
-    // Validate path BEFORE creating directories to prevent traversal-based
-    // directory creation outside /tmp (e.g. `/tmp/../../etc/passwd`).
-    let tmp_base = std::path::Path::new("/tmp");
-    let validated = crate::tools::builtin::path_utils::validate_path(save_to, Some(tmp_base))?;
+
     // Only create parent directories for the validated (safe) path
     if let Some(parent) = validated.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -1620,13 +1626,21 @@ mod tests {
     #[test]
     fn test_save_to_rejects_path_outside_tmp() {
         let err = validate_save_to_path("/etc/passwd").unwrap_err();
-        assert!(err.to_string().contains("must be under /tmp/"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("must be under /tmp/") || msg.contains("escapes sandbox"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]
     fn test_save_to_rejects_home_dir() {
         let err = validate_save_to_path("/home/user/file.txt").unwrap_err();
-        assert!(err.to_string().contains("must be under /tmp/"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("must be under /tmp/") || msg.contains("escapes sandbox"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]
@@ -1654,21 +1668,26 @@ mod tests {
     #[test]
     fn test_save_to_accepts_simple_tmp_path() {
         let path = validate_save_to_path("/tmp/test_ironclaw_photo.jpg").unwrap();
-        assert!(path.starts_with("/tmp"));
+        assert!(path.starts_with(crate::tools::builtin::path_utils::tool_temp_dir()));
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn test_save_to_accepts_nested_tmp_path() {
         let path = validate_save_to_path("/tmp/ironclaw_test_subdir/nested/file.png").unwrap();
-        assert!(path.starts_with("/tmp"));
-        let _ = std::fs::remove_dir_all("/tmp/ironclaw_test_subdir");
+        let temp_dir = crate::tools::builtin::path_utils::tool_temp_dir();
+        assert!(path.starts_with(&temp_dir));
+        let _ = std::fs::remove_dir_all(temp_dir.join("ironclaw_test_subdir"));
     }
 
     #[test]
     fn test_save_to_rejects_bare_tmp() {
         let err = validate_save_to_path("/tmp").unwrap_err();
-        assert!(err.to_string().contains("must be under /tmp/"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("must be under /tmp/") || msg.contains("escapes sandbox"),
+            "unexpected error: {msg}"
+        );
     }
 
     // ── Forbidden auth header blocking tests ───────────────────────────

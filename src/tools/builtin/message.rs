@@ -308,12 +308,9 @@ impl Tool for MessageTool {
         // Validate all attachment paths against the sandbox and verify existence.
         // Allow paths under the base_dir (~/.ironclaw) or /tmp/.
         for path in &attachments {
-            let tmp_dir = PathBuf::from("/tmp");
             let resolved =
                 crate::tools::builtin::path_utils::validate_path(path, Some(&self.base_dir))
-                    .or_else(|_| {
-                        crate::tools::builtin::path_utils::validate_path(path, Some(&tmp_dir))
-                    })
+                    .or_else(|_| crate::tools::builtin::path_utils::validate_tool_temp_path(path))
                     .map_err(|e| {
                         ToolError::ExecutionFailed(format!(
                             "Attachment path must be within {} or /tmp/: {}",
@@ -644,8 +641,10 @@ mod tests {
         tool.set_context(Some("telegram".to_string()), Some("12345".to_string()))
             .await;
 
-        // Create temp files under /tmp (allowed as secondary attachment dir)
-        let temp_dir = tempfile::tempdir_in("/tmp").unwrap();
+        // Create temp files in the tool temp dir (portable alias for /tmp on Windows).
+        let temp_root = crate::tools::builtin::path_utils::tool_temp_dir();
+        std::fs::create_dir_all(&temp_root).unwrap();
+        let temp_dir = tempfile::tempdir_in(&temp_root).unwrap();
         let file1 = temp_dir.path().join("photo.jpg");
         let file2 = temp_dir.path().join("doc.pdf");
         fs::write(&file1, "fake image data").unwrap();

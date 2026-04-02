@@ -640,14 +640,17 @@ mod tests {
             ..Default::default()
         });
 
-        // Generate output larger than 32KB (half of 64KB limit)
-        // printf repeats a 100-char line 400 times = 40KB
+        let temp_dir = tempfile::tempdir().unwrap();
+        let large_file = temp_dir.path().join("large.txt");
+        std::fs::write(&large_file, "A".repeat(131072)).unwrap();
+        let command = if cfg!(target_os = "windows") {
+            "type large.txt"
+        } else {
+            "cat large.txt"
+        };
+
         let result = manager
-            .execute(
-                "printf 'A%.0s' $(seq 1 40000)",
-                Path::new("."),
-                HashMap::new(),
-            )
+            .execute(command, temp_dir.path(), HashMap::new())
             .await;
 
         assert!(result.is_ok());
