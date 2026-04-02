@@ -1,4 +1,4 @@
-//! Unified HTTP server for all webhook routes.
+﻿//! Unified HTTP server for all webhook routes.
 //!
 //! Composes route fragments from HttpChannel, WASM channel router, etc.
 //! into a single axum server. Channels define routes but never spawn servers.
@@ -342,10 +342,11 @@ mod tests {
             .expect("Failed to send request");
         assert_eq!(response.status(), 200, "Server should be listening");
 
-        // Bind a second listener so rebinding must fail cross-platform.
-        let conflicting_listener = std::net::TcpListener::bind("127.0.0.1:0")
-            .expect("Failed to bind conflicting listener");
-        let invalid_addr = conflicting_listener.local_addr().unwrap();
+        // Try to restart on an address that is guaranteed to fail. We use a
+        // non-local IP (192.0.2.1, RFC 5737 TEST-NET-1) which the kernel will
+        // reject with EADDRNOTAVAIL regardless of privilege level, unlike
+        // privileged ports which succeed when running as root.
+        let invalid_addr: SocketAddr = "192.0.2.1:1".parse().unwrap();
 
         // Attempt bind (should fail); server state is untouched because we
         // never call install_listener on failure.
@@ -353,10 +354,9 @@ mod tests {
             .merged_router_clone()
             .expect("Router should exist after start()");
         let result = tokio::net::TcpListener::bind(invalid_addr).await;
-        assert!(result.is_err(), "Bind to occupied port should fail");
+        assert!(result.is_err(), "Bind to non-local address should fail");
         // `app` is dropped — server state unchanged (rollback by construction)
         drop(app);
-        drop(conflicting_listener);
 
         // Verify the old address is still responding (rollback succeeded)
         let response = client
