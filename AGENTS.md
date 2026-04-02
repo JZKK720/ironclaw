@@ -16,6 +16,19 @@ Start with these deeper docs as needed:
 - `src/NETWORK_SECURITY.md`
 - `tests/e2e/CLAUDE.md`
 
+## Release Alignment Workflow
+
+- `origin/main` is the promoted runtime baseline and the only push target. `upstream` points at `nearai/ironclaw` and is fetch-only; never plan or execute pushes to `upstream`.
+- If local git config exposes a push URL for `upstream`, treat it as accidental capability and do not use it. Keep all publishing on `origin/main`.
+- Historical validation branches `v0.23-fresh-install`, `v0.23-fresh-install-local`, and `v0.23-fresh-install-refresh` are retired. Do not use them for new update work unless you are doing forensic comparison.
+- Before proposing update work, compare `origin/main` with `upstream/main` and `upstream/staging`, then selectively pull in missing upstream commits.
+- For fresh-install or rebuild work, treat `upstream/staging` as the clean baseline candidate. Carry forward fork-local commits only after verifying that current upstream `v0.24` behavior still needs them.
+- Assume historical Docker/setup/polling/cutover patches are disposable until proven necessary on the fresh baseline. Prefer replaying the smallest verified subset over preserving legacy compatibility changes.
+- Prefer updating the fork baseline directly instead of creating new long-lived release-alignment branches.
+- When the running container and local git history disagree, verify which checkout and commit the container actually mounts before changing code. Use container labels, mounts, `docker-compose.yml`, `docker-compose.build.yml`, `docker-compose.override.yml`, `scripts/bootstrap.sh`, and `scripts/Bootstrap.ps1` as the runtime source-of-truth references.
+- Keep `README.v0.23-fresh-install.md` as a historical cutover/setup reference, not as the active branch authority.
+- Record which upstream commits were cherry-picked, skipped, or deferred when staging diverges from main, and which fork-local commits were intentionally kept or dropped during rebuild work.
+
 ## Architecture Mental Model
 
 - Channels normalize external input into `IncomingMessage`; `ChannelManager` merges all active channel streams.
