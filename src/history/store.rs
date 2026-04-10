@@ -60,17 +60,14 @@ impl Store {
         Ok(Self { pool })
     }
 
-    /// Run database migrations (embedded via refinery).
+    /// Run database migrations: acquires the migration advisory lock,
+    /// realigns any historically diverged checksums (issue #1328), then
+    /// runs refinery's embedded migrations. All bundled into a single
+    /// helper so this call site cannot drift from
+    /// `SetupWizard::run_migrations_postgres` (see PR #2101 review).
     pub async fn run_migrations(&self) -> Result<(), DatabaseError> {
-        use refinery::embed_migrations;
-        embed_migrations!("migrations");
-
         let mut client = self.pool.get().await?;
-        migrations::runner()
-            .run_async(&mut **client)
-            .await
-            .map_err(|e| DatabaseError::Migration(e.to_string()))?;
-        Ok(())
+        crate::db::migration_fixup::run_postgres_migrations_with_fixup(&mut client).await
     }
 
     /// Get a connection from the pool.
@@ -498,6 +495,12 @@ pub struct SandboxJobRecord {
     pub credential_grants_json: String,
 }
 
+impl crate::ownership::Owned for SandboxJobRecord {
+    fn owner_user_id(&self) -> &str {
+        &self.user_id
+    }
+}
+
 /// Summary of sandbox job counts grouped by status.
 #[derive(Debug, Clone, Default)]
 pub struct SandboxJobSummary {
@@ -520,6 +523,12 @@ pub struct AgentJobRecord {
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
     pub failure_reason: Option<String>,
+}
+
+impl crate::ownership::Owned for AgentJobRecord {
+    fn owner_user_id(&self) -> &str {
+        &self.user_id
+    }
 }
 
 /// Summary counts for agent (non-sandbox) jobs.
@@ -1856,7 +1865,7 @@ impl Store {
         let row = conn
             .query_opt(
                 r#"
-                SELECT id FROM conversations
+                SELECT id, source_channel FROM conversations
                 WHERE user_id = $1 AND channel = $2 AND metadata->>'thread_type' = 'assistant'
                 LIMIT 1
                 "#,
@@ -1865,7 +1874,20 @@ impl Store {
             .await?;
 
         if let Some(row) = row {
-            return Ok(row.get("id"));
+            let id: Uuid = row.get("id");
+            let source_channel: Option<String> = row.get("source_channel");
+            if source_channel.is_none() {
+                conn.execute(
+                    r#"
+                    UPDATE conversations
+                    SET source_channel = $2
+                    WHERE id = $1 AND source_channel IS NULL
+                    "#,
+                    &[&id, &channel],
+                )
+                .await?;
+            }
+            return Ok(id);
         }
 
         // Create a new assistant conversation
@@ -1873,10 +1895,10 @@ impl Store {
         let metadata = serde_json::json!({"thread_type": "assistant", "title": "Assistant"});
         conn.execute(
             r#"
-            INSERT INTO conversations (id, channel, user_id, metadata)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO conversations (id, channel, user_id, metadata, source_channel)
+            VALUES ($1, $2, $3, $4, $5)
             "#,
-            &[&id, &channel, &user_id, &metadata],
+            &[&id, &channel, &user_id, &metadata, &channel],
         )
         .await?;
 
