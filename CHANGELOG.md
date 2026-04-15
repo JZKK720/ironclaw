@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- *(sandbox)* mount `/var/run/docker.sock` and add `ironclaw-worker` service to `docker-compose.yml` so Docker sandbox execution works out of the box
+- *(channels)* suppress Docker-socket warning from WASM channels (e.g. Telegram); warning is now sent only to local channels
+
 ## [0.25.0](https://github.com/nearai/ironclaw/compare/ironclaw-v0.24.0...ironclaw-v0.25.0) - 2026-04-11
 
 ### Added
