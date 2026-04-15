@@ -170,6 +170,20 @@ if (-not $SkipGitSync) {
 }
 
 if (-not $SkipDockerBuild) {
+    Write-Step "Building ironclaw-worker sandbox image"
+    if ($PSCmdlet.ShouldProcess("docker build", "Dockerfile.worker -> ironclaw-worker:latest")) {
+        Push-Location $RepoDir
+        try {
+            & docker build -f Dockerfile.worker -t ironclaw-worker:latest .
+            if ($LASTEXITCODE -ne 0) {
+                throw "docker build ironclaw-worker failed with exit code $LASTEXITCODE."
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
     Write-Step "Building and starting the v0.25 Docker stack"
     if ($PSCmdlet.ShouldProcess("docker compose", "up -d --build postgres ironclaw")) {
         Invoke-Compose @("up", "-d", "--build", "postgres", "ironclaw")

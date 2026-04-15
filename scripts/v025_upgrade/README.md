@@ -17,11 +17,12 @@ this machine:
 1. verifies `git`, `docker`, and `ollama`
 2. verifies the repo is clean unless you explicitly allow a dirty tree
 3. fast-forwards the local checkout from `origin/main`
-4. rebuilds and starts the Docker stack defined in `docker-compose.yml`
-5. waits for the gateway health endpoint to come back
-6. verifies Ollama is reachable from the host
-7. optionally probes a model with a minimal `Reply with exactly OK` request
-8. automatically restarts Ollama once if the probe fails with the stuck-model
+4. builds the `ironclaw-worker:latest` sandbox image from `Dockerfile.worker`
+5. rebuilds and starts the Docker stack defined in `docker-compose.yml`
+6. waits for the gateway health endpoint to come back
+7. verifies Ollama is reachable from the host
+8. optionally probes a model with a minimal `Reply with exactly OK` request
+9. automatically restarts Ollama once if the probe fails with the stuck-model
    error we hit on this machine (`model failed to load`)
 
 ## Before you run it
