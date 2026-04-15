@@ -91,8 +91,6 @@ RUN set -eux; \
       caps_file=$(jq -r '.source.capabilities' "$manifest"); \
       crate_name=$(jq -r '.source.crate_name' "$manifest"); \
       [ -d "$source_dir" ] || continue; \
-      # Telegram is embedded in the binary at build time; skip it
-      [ "$ext_name" = "telegram" ] && continue; \
       echo "=== Building $ext_name from $source_dir ==="; \
       if [ -f "$source_dir/Cargo.lock" ]; then \
         CARGO_TARGET_DIR=/app/target cargo build --locked --release --target wasm32-wasip2 \

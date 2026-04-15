@@ -9,12 +9,34 @@ services:
       POSTGRES_USER: ironclaw
       POSTGRES_PASSWORD: ironclaw  # dev-only, change for any non-local deployment
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_v025:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ironclaw"]
       interval: 5s
       timeout: 3s
       retries: 5
 
+  ironclaw:
+    build:
+      context: .
+      target: runtime-staging
+    image: ironclaw-ironclaw
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://ironclaw:ironclaw@postgres/ironclaw
+      GATEWAY_HOST: 0.0.0.0
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      ONBOARD_COMPLETED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["run"]
+    ports:
+      - "127.0.0.1:3231:3000"
+      - "127.0.0.1:8281:8080"
+
 volumes:
-  pgdata:
+  pgdata_v025:
