@@ -976,7 +976,7 @@ async fn async_main() -> anyhow::Result<()> {
             acp_enabled: config.acp.enabled,
             routines_enabled: config.routines.enabled,
             skills_enabled: config.skills.enabled,
-            channels: channel_names,
+            channels: channel_names.clone(),
             tunnel_url: active_tunnel
                 .as_ref()
                 .and_then(|t| t.public_url())
@@ -1006,7 +1006,7 @@ async fn async_main() -> anyhow::Result<()> {
     {
         let active_at_startup: std::collections::HashSet<String> =
             loaded_wasm_channel_names.iter().cloned().collect();
-        ext_mgr.set_active_channels(loaded_wasm_channel_names).await;
+        ext_mgr.set_active_channels(loaded_wasm_channel_names.clone()).await;
         ext_mgr
             .set_channel_runtime(
                 Arc::clone(&channels),
@@ -1395,14 +1395,24 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
-    // Notify user if sandbox is unavailable (Docker missing/not running)
+    // Notify operator if sandbox is unavailable (Docker missing/not running).
+    // Limit delivery to local/admin-facing channels (REPL, TUI, web gateway, etc.) so
+    // that external chat integrations (Telegram, Discord, Slack, …) don't receive an
+    // unexpected system message on every startup.  The tracing::warn! emitted by
+    // setup_orchestrator already covers server-log visibility for all cases.
     if let Some(warning) = docker_user_warning {
         let channels_ref = Arc::clone(&channels_for_warnings);
+        // Collect non-WASM channel names; WASM channels are external integrations.
+        let local_names: Vec<String> = channel_names
+            .iter()
+            .filter(|n| !loaded_wasm_channel_names.contains(n))
+            .cloned()
+            .collect();
         tokio::spawn(async move {
             // Delay to let channels finish connecting before sending the warning.
             // 5s is generous but avoids the message being lost on slow startups.
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            tracing::debug!("Sending sandbox-unavailable warning to connected channels");
+            tracing::debug!("Sending sandbox-unavailable warning to local channels");
             let response = ironclaw::channels::OutgoingResponse {
                 content: format!("Warning: {warning}"),
                 thread_id: None,
@@ -1412,7 +1422,9 @@ async fn async_main() -> anyhow::Result<()> {
                     "type": "warning",
                 }),
             };
-            let _ = channels_ref.broadcast_all("default", response).await;
+            for name in &local_names {
+                let _ = channels_ref.broadcast(name, "default", response.clone()).await;
+            }
         });
     }
 
