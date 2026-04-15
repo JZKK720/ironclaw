@@ -1163,6 +1163,126 @@ impl Agent {
 #[cfg(test)]
 mod tests {
     use super::format_vertical_list;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use axum::extract::State;
+    use axum::routing::get;
+    use axum::{Json, Router};
+
+    use crate::agent::agent_loop::{Agent, AgentDeps};
+    use crate::agent::cost_guard::{CostGuard, CostGuardConfig};
+    use crate::agent::submission::SubmissionResult;
+    use crate::agent::{AgentConfig, ContextManager};
+    use crate::channels::manager::ChannelManager;
+    use crate::config::SafetyConfig;
+    use crate::hooks::HookRegistry;
+    use crate::llm::registry::ProviderProtocol;
+    use crate::llm::{
+        CacheRetention, LlmConfig, NearAiConfig, RegistryProviderConfig, SessionConfig,
+        create_llm_provider,
+    };
+    use crate::safety::SafetyLayer;
+    use crate::skills::SkillsConfig;
+    use crate::tools::ToolRegistry;
+
+    #[derive(Clone)]
+    struct OllamaTagsState {
+        models: Vec<String>,
+    }
+
+    async fn ollama_tags_handler(
+        State(state): State<OllamaTagsState>,
+    ) -> Json<serde_json::Value> {
+        let models: Vec<serde_json::Value> = state
+            .models
+            .iter()
+            .map(|name| serde_json::json!({ "name": name }))
+            .collect();
+        Json(serde_json::json!({ "models": models }))
+    }
+
+    async fn spawn_ollama_tags_server(models: &[&str]) -> (String, tokio::task::JoinHandle<()>) {
+        let app = Router::new()
+            .route("/api/tags", get(ollama_tags_handler))
+            .with_state(OllamaTagsState {
+                models: models.iter().map(|model| model.to_string()).collect(),
+            });
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        (format!("http://{}", addr), handle)
+    }
+
+    fn make_test_agent_with_llm(llm: Arc<dyn crate::llm::LlmProvider>, backend: &str) -> Agent {
+        let deps = AgentDeps {
+            owner_id: "default".to_string(),
+            store: None,
+            settings_store: None,
+            llm,
+            cheap_llm: None,
+            safety: Arc::new(SafetyLayer::new(&SafetyConfig {
+                max_output_length: 100_000,
+                injection_check_enabled: false,
+            })),
+            tools: Arc::new(ToolRegistry::new()),
+            workspace: None,
+            extension_manager: None,
+            skill_registry: None,
+            skill_catalog: None,
+            skills_config: SkillsConfig::default(),
+            hooks: Arc::new(HookRegistry::new()),
+            auth_manager: None,
+            cost_guard: Arc::new(CostGuard::new(CostGuardConfig::default())),
+            sse_tx: None,
+            http_interceptor: None,
+            transcription: None,
+            document_extraction: None,
+            sandbox_readiness: crate::agent::routine_engine::SandboxReadiness::DisabledByConfig,
+            builder: None,
+            llm_backend: backend.to_string(),
+            tenant_rates: Arc::new(crate::tenant::TenantRateRegistry::new(4, 3)),
+        };
+
+        Agent::new(
+            AgentConfig {
+                name: "test-agent".to_string(),
+                max_parallel_jobs: 1,
+                job_timeout: Duration::from_secs(60),
+                stuck_threshold: Duration::from_secs(60),
+                repair_check_interval: Duration::from_secs(30),
+                max_repair_attempts: 1,
+                use_planning: false,
+                session_idle_timeout: Duration::from_secs(300),
+                allow_local_tools: false,
+                max_cost_per_day_cents: None,
+                max_actions_per_hour: None,
+                max_cost_per_user_per_day_cents: None,
+                max_tool_iterations: 1,
+                auto_approve_tools: true,
+                default_timezone: "UTC".to_string(),
+                max_jobs_per_user: None,
+                max_tokens_per_job: 0,
+                multi_tenant: false,
+                max_llm_concurrent_per_user: None,
+                max_jobs_concurrent_per_user: None,
+                engine_v2: false,
+            },
+            deps,
+            Arc::new(ChannelManager::new()),
+            None,
+            None,
+            None,
+            Some(Arc::new(ContextManager::new(1))),
+            None,
+        )
+    }
 
     #[test]
     fn format_vertical_list_renders_one_item_per_line() {
@@ -1176,5 +1296,71 @@ mod tests {
         );
 
         assert_eq!(formatted, "Available tools:\n  time\n  shell\n  github");
+    }
+
+    #[tokio::test]
+    async fn model_command_lists_models_for_ollama_rig_provider() {
+        let (base_url, server) = spawn_ollama_tags_server(&["llama3", "codellama"]).await;
+        let session_dir = tempfile::tempdir().unwrap();
+        let llm_config = LlmConfig {
+            backend: "ollama".to_string(),
+            session: SessionConfig {
+                auth_base_url: "http://127.0.0.1:0".to_string(),
+                session_path: session_dir.path().join("session.json"),
+            },
+            nearai: NearAiConfig::for_model_discovery(),
+            provider: Some(RegistryProviderConfig {
+                protocol: ProviderProtocol::Ollama,
+                provider_id: "ollama".to_string(),
+                api_key: None,
+                base_url,
+                model: "llama3".to_string(),
+                extra_headers: Vec::new(),
+                oauth_token: None,
+                is_codex_chatgpt: false,
+                refresh_token: None,
+                auth_path: None,
+                cache_retention: CacheRetention::default(),
+                unsupported_params: Vec::new(),
+            }),
+            bedrock: None,
+            gemini_oauth: None,
+            openai_codex: None,
+            request_timeout_secs: 5,
+            cheap_model: None,
+            smart_routing_cascade: false,
+            max_retries: 0,
+            circuit_breaker_threshold: None,
+            circuit_breaker_recovery_secs: 30,
+            response_cache_enabled: false,
+            response_cache_ttl_secs: 60,
+            response_cache_max_entries: 10,
+        };
+        let session = crate::llm::create_session_manager(llm_config.session.clone()).await;
+        let llm = create_llm_provider(&llm_config, session).await.unwrap();
+        let agent = make_test_agent_with_llm(llm, "ollama");
+        let tenant = agent.tenant_ctx("test-user").await;
+        let args: Vec<String> = Vec::new();
+
+        let result = agent
+            .handle_system_command("model", &args, "repl", &tenant)
+            .await
+            .unwrap();
+
+        match result {
+            SubmissionResult::Response { content } => {
+                assert!(content.contains("Active model: llama3"), "{content}");
+                assert!(content.contains("Available models:"), "{content}");
+                assert!(content.contains("  llama3 (active)"), "{content}");
+                assert!(content.contains("  codellama"), "{content}");
+                assert!(
+                    !content.contains("Could not fetch model list"),
+                    "{content}"
+                );
+            }
+            other => panic!("expected response result, got {other:?}"),
+        }
+
+        server.abort();
     }
 }

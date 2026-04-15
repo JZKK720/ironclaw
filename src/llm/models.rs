@@ -1,5 +1,248 @@
 //! Model discovery and fetching for multiple LLM providers.
 
+use crate::llm::LlmError;
+
+pub(crate) async fn list_anthropic_models(api_key: &str) -> Result<Vec<String>, LlmError> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.anthropic.com/v1/models")
+        .header("anthropic-version", "2023-06-01")
+        .header("x-api-key", api_key)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| LlmError::RequestFailed {
+            provider: "anthropic".to_string(),
+            reason: format!("Connection failed: {e}"),
+        })?;
+
+    if !resp.status().is_success() {
+        return Err(LlmError::RequestFailed {
+            provider: "anthropic".to_string(),
+            reason: format!("Server returned {}", resp.status()),
+        });
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ModelEntry {
+        id: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct ModelsResponse {
+        data: Vec<ModelEntry>,
+    }
+
+    let body = resp
+        .json::<ModelsResponse>()
+        .await
+        .map_err(|e| LlmError::InvalidResponse {
+            provider: "anthropic".to_string(),
+            reason: e.to_string(),
+        })?;
+
+    let mut models: Vec<String> = body
+        .data
+        .into_iter()
+        .filter(|m| !m.id.contains("embedding") && !m.id.contains("audio"))
+        .map(|m| m.id)
+        .collect();
+
+    if models.is_empty() {
+        return Err(LlmError::InvalidResponse {
+            provider: "anthropic".to_string(),
+            reason: "No chat models found in response".to_string(),
+        });
+    }
+
+    models.sort();
+    Ok(models)
+}
+
+pub(crate) async fn list_openai_models(api_key: &str) -> Result<Vec<String>, LlmError> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.openai.com/v1/models")
+        .bearer_auth(api_key)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| LlmError::RequestFailed {
+            provider: "openai".to_string(),
+            reason: format!("Connection failed: {e}"),
+        })?;
+
+    if !resp.status().is_success() {
+        return Err(LlmError::RequestFailed {
+            provider: "openai".to_string(),
+            reason: format!("Server returned {}", resp.status()),
+        });
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ModelEntry {
+        id: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct ModelsResponse {
+        data: Vec<ModelEntry>,
+    }
+
+    let body = resp
+        .json::<ModelsResponse>()
+        .await
+        .map_err(|e| LlmError::InvalidResponse {
+            provider: "openai".to_string(),
+            reason: e.to_string(),
+        })?;
+
+    let mut model_pairs: Vec<(String, String)> = body
+        .data
+        .into_iter()
+        .filter(|m| is_openai_chat_model(&m.id))
+        .map(|m| {
+            let id = m.id;
+            (id.clone(), id)
+        })
+        .collect();
+
+    if model_pairs.is_empty() {
+        return Err(LlmError::InvalidResponse {
+            provider: "openai".to_string(),
+            reason: "No chat models found in response".to_string(),
+        });
+    }
+
+    sort_openai_models(&mut model_pairs);
+    Ok(model_pairs.into_iter().map(|(id, _)| id).collect())
+}
+
+pub(crate) async fn list_ollama_models(base_url: &str) -> Result<Vec<String>, LlmError> {
+    if base_url.trim().is_empty() {
+        return Err(LlmError::RequestFailed {
+            provider: "ollama".to_string(),
+            reason: "Base URL is empty".to_string(),
+        });
+    }
+
+    let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| LlmError::RequestFailed {
+            provider: "ollama".to_string(),
+            reason: format!("Connection failed: {e}"),
+        })?;
+
+    if !resp.status().is_success() {
+        return Err(LlmError::RequestFailed {
+            provider: "ollama".to_string(),
+            reason: format!("Server returned {}", resp.status()),
+        });
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ModelEntry {
+        name: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct TagsResponse {
+        models: Vec<ModelEntry>,
+    }
+
+    let body = resp
+        .json::<TagsResponse>()
+        .await
+        .map_err(|e| LlmError::InvalidResponse {
+            provider: "ollama".to_string(),
+            reason: e.to_string(),
+        })?;
+
+    let models: Vec<String> = body.models.into_iter().map(|m| m.name).collect();
+    if models.is_empty() {
+        return Err(LlmError::InvalidResponse {
+            provider: "ollama".to_string(),
+            reason: "No models found in response".to_string(),
+        });
+    }
+
+    Ok(models)
+}
+
+pub(crate) async fn list_openai_compatible_models(
+    provider: &str,
+    base_url: &str,
+    cached_key: Option<&str>,
+    extra_headers: &[(String, String)],
+) -> Result<Vec<String>, LlmError> {
+    if base_url.trim().is_empty() {
+        return Err(LlmError::RequestFailed {
+            provider: provider.to_string(),
+            reason: "Base URL is empty".to_string(),
+        });
+    }
+
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let mut req = client.get(&url).timeout(std::time::Duration::from_secs(5));
+    if let Some(key) = cached_key {
+        req = req.bearer_auth(key);
+    }
+    for (key, value) in extra_headers {
+        let name = match reqwest::header::HeaderName::from_bytes(key.as_bytes()) {
+            Ok(name) => name,
+            Err(_) => continue,
+        };
+        let value = match reqwest::header::HeaderValue::from_str(value) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        req = req.header(name, value);
+    }
+
+    let resp = req.send().await.map_err(|e| LlmError::RequestFailed {
+        provider: provider.to_string(),
+        reason: format!("Connection failed: {e}"),
+    })?;
+
+    if !resp.status().is_success() {
+        return Err(LlmError::RequestFailed {
+            provider: provider.to_string(),
+            reason: format!("Server returned {}", resp.status()),
+        });
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Model {
+        id: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct ModelsResponse {
+        data: Vec<Model>,
+    }
+
+    let body = resp
+        .json::<ModelsResponse>()
+        .await
+        .map_err(|e| LlmError::InvalidResponse {
+            provider: provider.to_string(),
+            reason: e.to_string(),
+        })?;
+
+    let models: Vec<String> = body.data.into_iter().map(|m| m.id).collect();
+    if models.is_empty() {
+        return Err(LlmError::InvalidResponse {
+            provider: provider.to_string(),
+            reason: "No models found in response".to_string(),
+        });
+    }
+
+    Ok(models)
+}
+
 /// Fetch models from the Anthropic API.
 ///
 /// Returns `(model_id, display_label)` pairs. Falls back to static defaults on error.
@@ -36,51 +279,12 @@ pub(crate) async fn fetch_anthropic_models(cached_key: Option<&str>) -> Vec<(Str
         (None, None) => return static_defaults,
     };
 
-    let client = reqwest::Client::new();
-    let mut request = client
-        .get("https://api.anthropic.com/v1/models")
-        .header("anthropic-version", "2023-06-01")
-        .timeout(std::time::Duration::from_secs(5));
-
     if is_oauth {
-        request = request
-            .bearer_auth(&key_or_token)
-            .header("anthropic-beta", "oauth-2025-04-20");
-    } else {
-        request = request.header("x-api-key", &key_or_token);
+        return static_defaults;
     }
 
-    let resp = match request.send().await {
-        Ok(r) if r.status().is_success() => r,
-        _ => return static_defaults,
-    };
-
-    #[derive(serde::Deserialize)]
-    struct ModelEntry {
-        id: String,
-    }
-    #[derive(serde::Deserialize)]
-    struct ModelsResponse {
-        data: Vec<ModelEntry>,
-    }
-
-    match resp.json::<ModelsResponse>().await {
-        Ok(body) => {
-            let mut models: Vec<(String, String)> = body
-                .data
-                .into_iter()
-                .filter(|m| !m.id.contains("embedding") && !m.id.contains("audio"))
-                .map(|m| {
-                    let label = m.id.clone();
-                    (m.id, label)
-                })
-                .collect();
-            if models.is_empty() {
-                return static_defaults;
-            }
-            models.sort_by(|a, b| a.0.cmp(&b.0));
-            models
-        }
+    match list_anthropic_models(&key_or_token).await {
+        Ok(models) => models.into_iter().map(|id| (id.clone(), id)).collect(),
         Err(_) => static_defaults,
     }
 }
@@ -118,44 +322,8 @@ pub(crate) async fn fetch_openai_models(cached_key: Option<&str>) -> Vec<(String
         None => return static_defaults,
     };
 
-    let client = reqwest::Client::new();
-    let resp = match client
-        .get("https://api.openai.com/v1/models")
-        .bearer_auth(&api_key)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(r) if r.status().is_success() => r,
-        _ => return static_defaults,
-    };
-
-    #[derive(serde::Deserialize)]
-    struct ModelEntry {
-        id: String,
-    }
-    #[derive(serde::Deserialize)]
-    struct ModelsResponse {
-        data: Vec<ModelEntry>,
-    }
-
-    match resp.json::<ModelsResponse>().await {
-        Ok(body) => {
-            let mut models: Vec<(String, String)> = body
-                .data
-                .into_iter()
-                .filter(|m| is_openai_chat_model(&m.id))
-                .map(|m| {
-                    let label = m.id.clone();
-                    (m.id, label)
-                })
-                .collect();
-            if models.is_empty() {
-                return static_defaults;
-            }
-            sort_openai_models(&mut models);
-            models
-        }
+    match list_openai_models(&api_key).await {
+        Ok(models) => models.into_iter().map(|id| (id.clone(), id)).collect(),
         Err(_) => static_defaults,
     }
 }
@@ -235,50 +403,14 @@ pub(crate) async fn fetch_ollama_models(base_url: &str) -> Vec<(String, String)>
         ("codellama".into(), "codellama".into()),
     ];
 
-    let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
-    let client = reqwest::Client::new();
-
-    let resp = match client
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(r) if r.status().is_success() => r,
-        Ok(_) => return static_defaults,
+    match list_ollama_models(base_url).await {
+        Ok(models) => models.into_iter().map(|id| (id.clone(), id)).collect(),
         Err(_) => {
             tracing::warn!(
                 "Could not connect to Ollama at {base_url}. Is it running? Using static defaults."
             );
-            return static_defaults;
+            static_defaults
         }
-    };
-
-    #[derive(serde::Deserialize)]
-    struct ModelEntry {
-        name: String,
-    }
-    #[derive(serde::Deserialize)]
-    struct TagsResponse {
-        models: Vec<ModelEntry>,
-    }
-
-    match resp.json::<TagsResponse>().await {
-        Ok(body) => {
-            let models: Vec<(String, String)> = body
-                .models
-                .into_iter()
-                .map(|m| {
-                    let label = m.name.clone();
-                    (m.name, label)
-                })
-                .collect();
-            if models.is_empty() {
-                return static_defaults;
-            }
-            models
-        }
-        Err(_) => static_defaults,
     }
 }
 
@@ -289,40 +421,15 @@ pub(crate) async fn fetch_openai_compatible_models(
     base_url: &str,
     cached_key: Option<&str>,
 ) -> Vec<(String, String)> {
-    if base_url.is_empty() {
-        return vec![];
-    }
-
-    let url = format!("{}/models", base_url.trim_end_matches('/'));
-    let client = reqwest::Client::new();
-    let mut req = client.get(&url).timeout(std::time::Duration::from_secs(5));
-    if let Some(key) = cached_key {
-        req = req.bearer_auth(key);
-    }
-
-    let resp = match req.send().await {
-        Ok(r) if r.status().is_success() => r,
-        _ => return vec![],
-    };
-
-    #[derive(serde::Deserialize)]
-    struct Model {
-        id: String,
-    }
-    #[derive(serde::Deserialize)]
-    struct ModelsResponse {
-        data: Vec<Model>,
-    }
-
-    match resp.json::<ModelsResponse>().await {
-        Ok(body) => body
-            .data
-            .into_iter()
-            .map(|m| {
-                let label = m.id.clone();
-                (m.id, label)
-            })
-            .collect(),
+    match list_openai_compatible_models(
+        "openai_compatible",
+        base_url,
+        cached_key,
+        &[],
+    )
+    .await
+    {
+        Ok(models) => models.into_iter().map(|id| (id.clone(), id)).collect(),
         Err(_) => vec![],
     }
 }
