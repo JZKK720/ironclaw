@@ -33,10 +33,28 @@ services:
       ONBOARD_COMPLETED: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Run as root so the process can access the Docker socket for sandbox sub-workers.
+    # The image sets ENV HOME=/home/ironclaw, so the data directory is preserved.
+    # This is a local-dev compose file; never run untrusted workloads with this setting.
+    user: "0:0"
     command: ["run"]
     ports:
       - "127.0.0.1:3231:3000"
       - "127.0.0.1:8281:8080"
+    volumes:
+      # Mount the host Docker socket so ironclaw can spawn sandbox sub-worker containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Build-only service: ensures `docker compose build` produces the ironclaw-worker image.
+  # The ironclaw orchestrator spawns containers from this image on demand via the Docker API;
+  # this service is never started by `docker compose up`.
+  ironclaw-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: ironclaw-worker:latest
+    profiles:
+      - worker
 
 volumes:
   pgdata_v025:
