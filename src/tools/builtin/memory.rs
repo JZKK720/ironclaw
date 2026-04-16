@@ -640,11 +640,12 @@ impl Tool for MemoryReadTool {
                 },
                 "version": {
                     "type": "integer",
-                    "description": "Read a specific historical version of the document (omit for current content)"
+                    "description": "Read a specific historical version (positive integer ≥ 1). Omit this field entirely when reading current content or when list_versions is true. Do NOT pass 0.",
+                    "minimum": 1
                 },
                 "list_versions": {
                     "type": "boolean",
-                    "description": "If true, return version history instead of file content",
+                    "description": "If true, return version history instead of file content. Omit the 'version' field when using this option — they are mutually exclusive.",
                     "default": false
                 }
             },
@@ -675,13 +676,23 @@ impl Tool for MemoryReadTool {
             .get("list_versions")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let version = match params.get("version").and_then(|v| v.as_i64()) {
-            _ if list_versions && params.get("version").is_some() => {
-                return Err(ToolError::InvalidParameters(
-                    "list_versions and version are mutually exclusive".to_string(),
-                ));
-            }
-            Some(v) if v < 1 || v > i64::from(i32::MAX) => {
+
+        // Treat version <= 0 as "not provided" — LLMs sometimes pass 0 as a null
+        // sentinel when defaulting parameters, which must not trigger the mutual
+        // exclusion check below.
+        let version_raw = params.get("version").and_then(|v| v.as_i64());
+        let version_specified = version_raw.filter(|&v| v >= 1);
+
+        if list_versions && version_specified.is_some() {
+            return Err(ToolError::InvalidParameters(
+                "list_versions and version are mutually exclusive: \
+                 omit version when list_versions is true"
+                    .to_string(),
+            ));
+        }
+
+        let version = match version_specified {
+            Some(v) if v > i64::from(i32::MAX) => {
                 return Err(ToolError::InvalidParameters(format!(
                     "version must be between 1 and {}, got {v}",
                     i32::MAX
