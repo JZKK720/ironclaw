@@ -556,7 +556,11 @@ impl Tool for MemoryWriteTool {
         let allows_empty_content = target == "bootstrap";
 
         // At least one mode must be provided: content for write/append, or old_string for patch.
-        let is_patch_mode = params.get("old_string").and_then(|v| v.as_str()).is_some();
+        // An empty old_string is treated the same as absent — it falls through to write/append mode.
+        let is_patch_mode = params
+            .get("old_string")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty());
         let has_content = !content.trim().is_empty();
         if !is_patch_mode && !has_content && !allows_empty_content {
             return Err(ToolError::InvalidParameters(
@@ -690,14 +694,15 @@ impl Tool for MemoryWriteTool {
             }
         }
 
-        // Patch mode: if old_string is provided, do search-and-replace instead of write/append.
-        let old_string = params.get("old_string").and_then(|v| v.as_str());
+        // Patch mode: if old_string is provided (and non-empty), do search-and-replace instead of
+        // write/append. An empty old_string is silently treated as absent so that LLMs that pass
+        // old_string="" when they mean "create or overwrite" fall through to normal write mode
+        // rather than hitting a schema violation error.
+        let old_string = params
+            .get("old_string")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
         if let Some(old_str) = old_string {
-            if old_str.is_empty() {
-                return Err(ToolError::InvalidParameters(
-                    "old_string cannot be empty".to_string(),
-                ));
-            }
             if layer.is_some() {
                 return Err(ToolError::InvalidParameters(
                     "patch mode (old_string/new_string) cannot be combined with layer".to_string(),
@@ -1552,6 +1557,37 @@ mod tests {
                 }
                 other => panic!("expected NotAuthorized, got: {other:?}"),
             }
+        }
+
+        /// Regression: passing `old_string: ""` with `append: false` used to return
+        /// `InvalidParameters("old_string cannot be empty")`. It should silently fall
+        /// through to a normal full-content write instead.
+        #[tokio::test]
+        async fn test_memory_write_empty_old_string_falls_through_to_write() {
+            let workspace = make_test_workspace();
+            let tool = MemoryWriteTool::from_workspace(workspace);
+            let ctx = JobContext::default();
+
+            let params = serde_json::json!({
+                "content": "hello from Telegram",
+                "target": "notes.md",
+                "append": false,
+                "old_string": "",
+            });
+
+            let result = tool.execute(params, &ctx).await;
+            assert!(
+                result.is_ok(),
+                "empty old_string should not error; got: {:?}",
+                result.unwrap_err()
+            );
+            let out = result.unwrap();
+            let body = &out.result;
+            assert!(
+                body.get("status").and_then(|s| s.as_str()) == Some("written")
+                    || body.get("status").and_then(|s| s.as_str()) == Some("appended"),
+                "expected written/appended status, got: {body}"
+            );
         }
     }
 
