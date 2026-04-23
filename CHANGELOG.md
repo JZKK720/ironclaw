@@ -9,10 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(memory)* `memory_write` now treats `old_string: ""` the same as absent — LLMs that pass an empty string when creating a new file (instead of omitting the field) no longer receive an `InvalidParameters` error; they fall through to normal write/append mode
-- *(docker)* strip CRLF from SQL migration files during image build so `embed_migrations!` checksums are identical whether the image is built on Windows or Linux; prevents startup crash on Windows-built images against a database initialized by a Linux CI image
 - *(sandbox)* mount `/var/run/docker.sock` and add `ironclaw-worker` service to `docker-compose.yml` so Docker sandbox execution works out of the box
 - *(channels)* suppress Docker-socket warning from WASM channels (e.g. Telegram); warning is now sent only to local channels
+
+## [0.20.1](https://github.com/JZKK720/ironclaw/compare/v0.20.0...v0.20.1) - 2026-04-23
+
+### Fixed
+
+- *(memory)* **`memory_write` crashes with `InvalidParameters` when `old_string` is an empty string** — the tool incorrectly entered patch mode whenever any `old_string` key was present in the JSON payload, including `""`. LLMs that omit the field sometimes pass `""` instead; this caused every new-file write from those models to fail. The fix treats `""` the same as absent: it falls through to normal write/append mode. ([`7c46329a`](https://github.com/JZKK720/ironclaw/commit/7c46329a))
+
+- *(docker)* **Container startup crash on Windows-built images: migration checksum mismatch** — On Windows hosts with `core.autocrlf=true`, SQL migration files had CRLF line endings embedded into the image at compile time via `embed_migrations!` / `include_str!`. The SipHash-1-3 checksum computed over CRLF content differs from the LF-based checksum stored by a Linux-built GHCR image, causing refinery to abort on startup: `Migration failed: applied migration V1__initial is different than filesystem one V1__initial`. The fix adds a `sed -i 's/\r$//'` pass over all `migrations/*.sql` files in the Docker builder stage, before `cargo build`, so checksums are always LF-based regardless of the build host OS. A `.gitattributes` rule (`*.sql text eol=lf`) is also added as an advisory guard for future clones. ([`f316b47e`](https://github.com/JZKK720/ironclaw/commit/f316b47e))
 
 ## [0.26.0](https://github.com/nearai/ironclaw/compare/ironclaw-v0.25.0...ironclaw-v0.26.0) - 2026-04-21
 
