@@ -1,1 +1,11 @@
+# Normalize line endings to LF in the repository and on checkout.
+# This ensures refinery migration checksums (embedded via include_str!/embed_migrations!)
+# are identical regardless of the developer's OS or CI environment.
+* text=auto
+*.sql text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+
 tests/test-pages/**/*.html linguist-generated=true

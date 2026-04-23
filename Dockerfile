@@ -65,6 +65,11 @@ COPY wit/ wit/
 COPY providers.json providers.json
 COPY profiles/ profiles/
 
+# Normalize SQL line endings to LF. embed_migrations! (refinery) uses include_str! to embed
+# SQL at compile time, so CRLF from a Windows build context changes the SipHash checksum and
+# causes startup failures against a database initialized by a Linux-built image.
+RUN find migrations -name "*.sql" -exec sed -i 's/\r$//' {} \;
+
 RUN cargo build --profile dist --bin ironclaw
 
 # Stage 4b: Build all WASM extensions from source (only used by runtime-staging)
