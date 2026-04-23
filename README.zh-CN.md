@@ -123,6 +123,63 @@ brew install ironclaw
 </details>
 
 <details>
+  <summary>通过 Docker 安装 — 推荐用于 Windows 及免维护自动升级</summary>
+
+**前置要求：** 以下任意一种：
+- **Windows（原生）：**[Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) — 自动使用 WSL2 后端
+- **Windows（WSL2 发行版）：** 在 WSL2 发行版内安装 Docker Engine + Compose 插件（[Docker 文档](https://docs.docker.com/engine/install/ubuntu/)）
+- **macOS：**[Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
+- **Linux：** Docker Engine + Compose 插件
+
+1. **克隆仓库**（包含 `docker-compose.yml` 和 `.env.example`）：
+   ```bash
+   git clone https://github.com/JZKK720/ironclaw.git
+   cd ironclaw
+   ```
+
+2. **创建环境变量文件：**
+   ```bash
+   cp .env.example .env
+   ```
+   打开 `.env` 并至少设置以下变量：
+   ```env
+   # 使用如下命令生成：openssl rand -hex 32
+   GATEWAY_AUTH_TOKEN=<你的随机十六进制令牌>
+   SECRETS_MASTER_KEY=<你的随机十六进制令牌>
+
+   # 你的 LLM 提供商，例如 Anthropic：
+   LLM_BACKEND=anthropic
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+
+3. **登录 GHCR**（一次性操作，用于 Watchtower 自动更新）：
+   ```bash
+   # 在 https://github.com/settings/tokens 创建具有 read:packages 权限的个人访问令牌
+   docker login ghcr.io -u <你的 GitHub 用户名> -p <你的 PAT>
+   ```
+
+4. **启动所有服务：**
+   ```bash
+   docker compose up -d
+   ```
+   将启动三个服务：
+
+   | 服务 | 用途 | 访问地址 |
+   |------|------|---------|
+   | `postgres` | 启用 pgvector 的数据库 | 内部 |
+   | `ironclaw` | AI 助手 | http://localhost:3231（Web UI）· http://localhost:8281（网关） |
+   | `watchtower` | 每小时自动升级 | — |
+
+5. **查看实时日志：**
+   ```bash
+   docker compose logs -f ironclaw
+   ```
+
+> **Windows 说明：** Windows 智能应用控制（Smart App Control）可能会阻止新编译的 Rust 二进制文件运行。在 Windows 上推荐使用 Docker 安装方式（Docker Desktop 或在 WSL2 内安装 Docker Engine），无需安装 Rust 工具链。
+
+</details>
+
+<details>
   <summary>从源码编译 (Windows、Linux、macOS 上使用 Cargo)</summary>
 
 确保你已安装 [Rust](https://rustup.rs)。
@@ -318,6 +375,35 @@ cargo test test_name
 
 - **渠道**：参见 [docs/channels/overview.mdx](docs/channels/overview.mdx) 了解 Telegram、Discord 和其他渠道的设置。
 - **修改渠道源码**：在 `cargo build` 之前运行 `./channels-src/telegram/build.sh` 以便打包更新后的 WASM。
+
+## 升级
+
+### Docker — 自动升级（Watchtower）
+
+如果你通过 `docker compose up -d` 启动了服务，**Watchtower** 已随之运行。它每小时检查一次 GHCR，当有新镜像发布时自动热替换 `ironclaw` 容器——无需手动操作。
+
+验证 Watchtower 运行状态：
+```bash
+docker compose ps watchtower
+docker compose logs watchtower
+```
+
+### Docker — 手动升级
+
+拉取最新镜像并重建容器：
+```bash
+docker compose pull ironclaw
+docker compose up -d ironclaw
+```
+
+查看当前运行的镜像版本信息：
+```bash
+docker inspect ghcr.io/jzkk720/ironclaw:latest --format '{{.Created}}'
+```
+
+### 二进制 / Cargo
+
+重新运行[安装](#安装)部分中的安装脚本或 `cargo install` 命令。
 
 ## OpenClaw 传承
 

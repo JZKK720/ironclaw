@@ -126,6 +126,63 @@ brew install ironclaw
 </details>
 
 <details>
+  <summary>Install via Docker — recommended for Windows and hands-off auto-upgrades</summary>
+
+**Prerequisites:** one of:
+- **Windows (native):** [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) — uses WSL2 backend automatically
+- **Windows (WSL2 distro):** install Docker Engine + Compose plugin inside your WSL2 distribution ([Docker docs](https://docs.docker.com/engine/install/ubuntu/))
+- **macOS:** [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
+- **Linux:** Docker Engine + Compose plugin
+
+1. **Clone the repository** (provides `docker-compose.yml` and `.env.example`):
+   ```bash
+   git clone https://github.com/JZKK720/ironclaw.git
+   cd ironclaw
+   ```
+
+2. **Create your environment file:**
+   ```bash
+   cp .env.example .env
+   ```
+   Open `.env` and set at minimum:
+   ```env
+   # Generate with: openssl rand -hex 32
+   GATEWAY_AUTH_TOKEN=<your-random-hex-token>
+   SECRETS_MASTER_KEY=<your-random-hex-token>
+
+   # Your LLM provider — e.g. Anthropic:
+   LLM_BACKEND=anthropic
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+
+3. **Authenticate with GHCR** (one-time, required for Watchtower auto-updates):
+   ```bash
+   # Create a Personal Access Token with read:packages scope at https://github.com/settings/tokens
+   docker login ghcr.io -u <your-github-username> -p <your-PAT>
+   ```
+
+4. **Start all services:**
+   ```bash
+   docker compose up -d
+   ```
+   This starts three services:
+
+   | Service | Purpose | URL |
+   |---------|---------|-----|
+   | `postgres` | pgvector-enabled database | internal |
+   | `ironclaw` | AI assistant | http://localhost:3231 (web UI) · http://localhost:8281 (gateway) |
+   | `watchtower` | Hourly auto-upgrade | — |
+
+5. **Tail the logs:**
+   ```bash
+   docker compose logs -f ironclaw
+   ```
+
+> **Windows note:** Windows Smart App Control blocks freshly compiled Rust binaries. Docker (Docker Desktop, or Docker Engine inside WSL2) is the recommended install path on Windows — no Rust toolchain needed.
+
+</details>
+
+<details>
   <summary>Compile the source code (Cargo on Windows, Linux, macOS)</summary>
 
 Install it with `cargo`, just make sure you have [Rust](https://rustup.rs) installed on your computer.
@@ -321,6 +378,35 @@ cargo test test_name
 
 - **Channels**: See [docs/channels/overview.mdx](docs/channels/overview.mdx) for setup of Telegram, Discord, and other channels.
 - **Changing channel sources**: Run `./channels-src/telegram/build.sh` before `cargo build` so the updated WASM is bundled.
+
+## Upgrading
+
+### Docker — Automatic (Watchtower)
+
+If you started with `docker compose up -d`, **Watchtower** is already running alongside IronClaw. It checks GHCR every hour and automatically hot-swaps the `ironclaw` container when a new image is published — no manual steps needed.
+
+Verify Watchtower activity:
+```bash
+docker compose ps watchtower
+docker compose logs watchtower
+```
+
+### Docker — Manual
+
+Pull the latest image and recreate the container:
+```bash
+docker compose pull ironclaw
+docker compose up -d ironclaw
+```
+
+To verify which image digest is currently running:
+```bash
+docker inspect ghcr.io/jzkk720/ironclaw:latest --format '{{.Created}}'
+```
+
+### Binary / Cargo
+
+Re-run the installer script or `cargo install` command from the [Installation](#installation) section.
 
 ## OpenClaw Heritage
 
