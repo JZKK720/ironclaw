@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- *(memory)* `memory_write` now treats `old_string: ""` the same as absent — LLMs that pass an empty string when creating a new file (instead of omitting the field) no longer receive an `InvalidParameters` error; they fall through to normal write/append mode
+- *(docker)* strip CRLF from SQL migration files during image build so `embed_migrations!` checksums are identical whether the image is built on Windows or Linux; prevents startup crash on Windows-built images against a database initialized by a Linux CI image
 - *(sandbox)* mount `/var/run/docker.sock` and add `ironclaw-worker` service to `docker-compose.yml` so Docker sandbox execution works out of the box
 - *(channels)* suppress Docker-socket warning from WASM channels (e.g. Telegram); warning is now sent only to local channels
 
