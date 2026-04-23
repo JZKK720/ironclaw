@@ -1,0 +1,68 @@
+name: Build and Publish Docker Images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Prevent concurrent builds from the same branch
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: jzkk720
+
+jobs:
+  build-and-push:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Main ironclaw image ──────────────────────────────────────────────
+      - name: Build and push ironclaw
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime-staging
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw:${{ github.sha }}
+          # Layer cache stored in GitHub Actions cache — drastically speeds up
+          # subsequent builds when only src/ changes.
+          cache-from: type=gha,scope=ironclaw-main
+          cache-to: type=gha,mode=max,scope=ironclaw-main
+
+      # ── Worker image (spawned by orchestrator for sandbox jobs) ──────────
+      - name: Build and push ironclaw-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw-worker:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw-worker:${{ github.sha }}
+          cache-from: type=gha,scope=ironclaw-worker
+          cache-to: type=gha,mode=max,scope=ironclaw-worker

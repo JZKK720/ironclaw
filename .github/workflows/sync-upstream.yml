@@ -1,0 +1,128 @@
+name: Sync Upstream and Rebuild
+
+on:
+  # Every Monday at 02:00 UTC — adjust cron if you want a different cadence.
+  schedule:
+    - cron: '0 2 * * 1'
+  # Always allow a manual trigger from the GitHub Actions UI.
+  workflow_dispatch:
+
+# Only one sync can run at a time.
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push merged commits to main
+  packages: write   # push Docker images to GHCR
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: jzkk720
+
+jobs:
+  sync-and-build:
+    name: Sync upstream/staging → main → GHCR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork/main (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # GITHUB_TOKEN allows pushing back to the same repo.
+          # NOTE: pushes made with this token do NOT trigger other workflows
+          # (GitHub prevents loop triggers). The Docker build is therefore
+          # included inline below, not in docker-publish.yml.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/nearai/ironclaw.git
+
+      - name: Fetch upstream/staging
+        run: git fetch upstream staging
+
+      - name: Count commits behind upstream/staging
+        id: diff
+        run: |
+          BEHIND=$(git rev-list HEAD..upstream/staging --count)
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "This fork is $BEHIND commit(s) behind upstream/staging."
+
+      - name: Nothing to sync — exit early
+        if: steps.diff.outputs.behind == '0'
+        run: echo "Already up to date with upstream/staging. Skipping build."
+
+      # ── Auto-merge upstream into main ────────────────────────────────────
+      - name: Attempt auto-merge
+        if: steps.diff.outputs.behind != '0'
+        id: merge
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          git merge upstream/staging --no-edit \
+            -m "chore: sync upstream/staging ${DATE} (${{ steps.diff.outputs.behind }} new commits)" \
+          || {
+            git merge --abort
+            echo "::error::Auto-merge failed — upstream/staging has conflicts with fork/main."
+            echo "::error::To resolve: git fetch upstream && git merge upstream/staging, fix conflicts, push, then re-run this workflow."
+            exit 1
+          }
+
+      - name: Push merged main
+        if: steps.diff.outputs.behind != '0'
+        run: git push origin main
+
+      # ── Docker build (inline because GITHUB_TOKEN push won't re-trigger
+      #    docker-publish.yml — GitHub blocks self-triggered workflows) ──────
+      - name: Set up Docker Buildx
+        if: steps.diff.outputs.behind != '0'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.diff.outputs.behind != '0'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ironclaw
+        if: steps.diff.outputs.behind != '0'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime-staging
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw:${{ github.sha }}
+          cache-from: type=gha,scope=ironclaw-main
+          cache-to: type=gha,mode=max,scope=ironclaw-main
+
+      - name: Build and push ironclaw-worker
+        if: steps.diff.outputs.behind != '0'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw-worker:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw-worker:${{ github.sha }}
+          cache-from: type=gha,scope=ironclaw-worker
+          cache-to: type=gha,mode=max,scope=ironclaw-worker
+
+      - name: Summary
+        if: steps.diff.outputs.behind != '0'
+        run: |
+          echo "### Sync complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "Merged ${{ steps.diff.outputs.behind }} upstream commit(s)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Images pushed to GHCR:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ghcr.io/${{ env.IMAGE_OWNER }}/ironclaw:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ghcr.io/${{ env.IMAGE_OWNER }}/ironclaw-worker:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Watchtower will pick up the new image within the next poll interval." >> "$GITHUB_STEP_SUMMARY"

@@ -17,10 +17,17 @@ services:
       retries: 5
 
   ironclaw:
+    # Image is published to GHCR by GitHub Actions on every push to fork/main.
+    # Watchtower polls this tag hourly and restarts the container when a new
+    # digest is available — no manual docker pull or local rebuild needed.
+    #
+    # To force a local build instead (e.g., while developing patches):
+    #   docker compose build ironclaw && docker compose up -d ironclaw
+    image: ghcr.io/jzkk720/ironclaw:latest
+    # Keep build config so `docker compose build` still works for local dev.
     build:
       context: .
       target: runtime-staging
-    image: ironclaw-ironclaw
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,17 +51,43 @@ services:
     volumes:
       # Mount the host Docker socket so ironclaw can spawn sandbox sub-worker containers.
       - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      # Tell Watchtower to watch this container for image updates.
+      com.centurylinklabs.watchtower.enable: "true"
 
   # Build-only service: ensures `docker compose build` produces the ironclaw-worker image.
   # The ironclaw orchestrator spawns containers from this image on demand via the Docker API;
   # this service is never started by `docker compose up`.
   ironclaw-worker:
+    image: ghcr.io/jzkk720/ironclaw-worker:latest
     build:
       context: .
       dockerfile: Dockerfile.worker
-    image: ironclaw-worker:latest
     profiles:
       - worker
+
+  # Watchtower — polls GHCR hourly and hot-swaps ironclaw when a new image is pushed.
+  # It only manages containers labelled com.centurylinklabs.watchtower.enable=true,
+  # so other containers on this host are left untouched.
+  #
+  # Prerequisites (one-time setup):
+  #   1. Create a GitHub PAT with read:packages scope at github.com/settings/tokens
+  #   2. docker login ghcr.io -u jzkk720 -p <PAT>
+  #      (credentials are stored by Docker and used automatically via the socket)
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Only manage containers that have the watchtower.enable label.
+      WATCHTOWER_LABEL_ENABLE: "true"
+      # Remove superseded image layers after each update.
+      WATCHTOWER_CLEANUP: "true"
+      # Poll interval in seconds (3600 = hourly).
+      WATCHTOWER_POLL_INTERVAL: "3600"
+      # Log at info level — visible via docker compose logs watchtower.
+      WATCHTOWER_DEBUG: "false"
 
 volumes:
   pgdata_v025:
