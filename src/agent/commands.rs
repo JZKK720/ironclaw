@@ -1173,8 +1173,9 @@ mod tests {
     use crate::agent::agent_loop::{Agent, AgentDeps};
     use crate::agent::cost_guard::{CostGuard, CostGuardConfig};
     use crate::agent::submission::SubmissionResult;
-    use crate::agent::{AgentConfig, ContextManager};
-    use crate::channels::manager::ChannelManager;
+    use crate::config::AgentConfig;
+    use crate::context::ContextManager;
+    use crate::channels::ChannelManager;
     use crate::config::SafetyConfig;
     use crate::hooks::HookRegistry;
     use crate::llm::registry::ProviderProtocol;
@@ -1182,8 +1183,8 @@ mod tests {
         CacheRetention, LlmConfig, NearAiConfig, RegistryProviderConfig, SessionConfig,
         create_llm_provider,
     };
-    use crate::safety::SafetyLayer;
-    use crate::skills::SkillsConfig;
+    use crate::config::SkillsConfig;
+    use ironclaw_safety::SafetyLayer;
     use crate::tools::ToolRegistry;
 
     #[derive(Clone)]

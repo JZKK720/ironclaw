@@ -17,6 +17,7 @@ use crate::auth::{
 use crate::channels::wasm::{
     LoadedChannel, RegisteredEndpoint, SharedWasmChannel, TELEGRAM_CHANNEL_NAME, WasmChannelLoader,
     WasmChannelRouter, WasmChannelRuntime, bot_username_setting_key, is_reserved_wasm_channel_name,
+    owner_id_from_capabilities,
 };
 use crate::channels::{ChannelManager, OutgoingResponse};
 use crate::code_challenge::{CodeChallengeFlow, PendingCodeChallenge, VerificationChallenge};
@@ -280,7 +281,7 @@ fn telegram_bot_api_url(bot_token: &str, method: &str) -> String {
 fn build_wasm_channel_runtime_config_updates(
     tunnel_url: Option<&str>,
     webhook_secret: Option<&str>,
-    owner_id: Option<i64>,
+    owner_id: Option<&str>,
 ) -> HashMap<String, serde_json::Value> {
     let mut config_updates = HashMap::new();
 
@@ -299,7 +300,10 @@ fn build_wasm_channel_runtime_config_updates(
     }
 
     if let Some(owner_id) = owner_id {
-        config_updates.insert("owner_id".to_string(), serde_json::json!(owner_id));
+        config_updates.insert(
+            "owner_id".to_string(),
+            serde_json::Value::String(owner_id.to_string()),
+        );
     }
 
     config_updates
@@ -5634,7 +5638,14 @@ impl ExtensionManager {
             )));
         }
 
-        let owner_actor_id = owner_id.map(|id| id.to_string());
+        // Resolve owner with full fallback: runtime HashMap -> settings store -> capabilities
+        let resolved_owner: Option<String> = if let Some(id) = owner_id {
+            Some(id.to_string())
+        } else if let Some(id) = self.current_channel_owner_id(&channel_name).await {
+            Some(id.to_string())
+        } else {
+            owner_id_from_capabilities(loaded.capabilities_file.as_ref(), &channel_name)
+        };
         let webhook_secret_name = loaded.webhook_secret_name();
         let secret_header = loaded.webhook_secret_header().map(|s| s.to_string());
         let webhook_secret_managed_by_host = loaded.webhook_secret_managed_by_host();
@@ -5649,15 +5660,14 @@ impl ExtensionManager {
             .ok()
             .map(|s| s.expose().to_string());
 
-        let channel_arc = Arc::new(loaded.channel.with_owner_actor_id(owner_actor_id));
+        let channel_arc = Arc::new(loaded.channel.with_owner_actor_id(resolved_owner.clone()));
 
         // Inject runtime config (tunnel_url, webhook_secret, owner_id)
         {
-            let resolved_owner_id = owner_id.or(self.current_channel_owner_id(&channel_name).await);
             let mut config_updates = build_wasm_channel_runtime_config_updates(
                 self.tunnel_url.as_deref(),
                 webhook_secret.as_deref(),
-                resolved_owner_id,
+                resolved_owner.as_deref(),
             );
             config_updates.extend(
                 self.load_channel_runtime_config_overrides(&channel_name)
@@ -5876,10 +5886,16 @@ impl ExtensionManager {
             .as_ref()
             .and_then(|f| f.hmac_secret_name().map(|s| s.to_string()));
 
+        let resolved_owner: Option<String> = self
+            .current_channel_owner_id(name)
+            .await
+            .map(|id| id.to_string())
+            .or_else(|| owner_id_from_capabilities(capabilities_file.as_ref(), name));
+
         let mut config_updates = build_wasm_channel_runtime_config_updates(
             self.tunnel_url.as_deref(),
             None,
-            self.current_channel_owner_id(name).await,
+            resolved_owner.as_deref(),
         );
         config_updates.extend(self.load_channel_runtime_config_overrides(name).await);
         inject_wasm_channel_secret_config_updates(
@@ -9702,7 +9718,7 @@ mod tests {
         let updates = build_wasm_channel_runtime_config_updates(
             Some("https://example.test"),
             Some("secret-123"),
-            Some(424242),
+            Some("424242"),
         );
 
         require_eq(
@@ -9717,8 +9733,8 @@ mod tests {
         )?;
         require_eq(
             updates.get("owner_id"),
-            Some(&serde_json::json!(424242)),
-            "owner_id",
+            Some(&serde_json::json!("424242")),
+            "owner_id should be injected as Value::String",
         )
     }
 
