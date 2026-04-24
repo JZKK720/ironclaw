@@ -648,8 +648,40 @@ impl Guest for TelegramChannel {
             channel_host::log(channel_host::LogLevel::Info, "Polling mode enabled");
 
             // Delete any existing webhook before polling. Telegram returns success
-            // when no webhook exists, so any error here (e.g. 401) means a bad token.
-            delete_webhook().map_err(|e| format!("Bot token validation failed: {}", e))?;
+            // when no webhook exists, so a 401 means a bad token. Transient network
+            // errors (e.g. TLS failures during Docker startup) are retried up to 3 times.
+            const MAX_ATTEMPTS: u32 = 3;
+            let mut last_err = String::new();
+            let mut validated = false;
+            for attempt in 1..=MAX_ATTEMPTS {
+                match delete_webhook() {
+                    Ok(()) => {
+                        validated = true;
+                        break;
+                    }
+                    // Auth / API errors are permanent — bad token, fail immediately.
+                    Err(ref e) if e.contains("HTTP 401") || e.contains("Telegram API error") => {
+                        return Err(format!("Bot token validation failed: {}", e));
+                    }
+                    // Network / TLS error — transient at startup, retry with backoff.
+                    Err(e) => {
+                        last_err = e.clone();
+                        channel_host::log(
+                            channel_host::LogLevel::Warn,
+                            &format!(
+                                "deleteWebhook attempt {}/{} failed (transient), retrying: {}",
+                                attempt, MAX_ATTEMPTS, e
+                            ),
+                        );
+                        if attempt < MAX_ATTEMPTS {
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                        }
+                    }
+                }
+            }
+            if !validated {
+                return Err(format!("Bot token validation failed: {}", last_err));
+            }
         }
 
         // Configure polling only if not in webhook mode
