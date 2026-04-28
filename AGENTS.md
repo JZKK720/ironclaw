@@ -16,6 +16,22 @@ Start with these deeper docs as needed:
 - `src/NETWORK_SECURITY.md`
 - `tests/e2e/CLAUDE.md`
 
+## Release Alignment Workflow
+
+- `origin/main` is the promoted fork runtime baseline. Treat a checked-out `master` branch as a local working branch, not the deployment baseline, unless the user explicitly says otherwise.
+- Do not assume the fork baseline is aligned with a specific upstream release line without checking current divergence against `upstream/main` and `upstream/staging`.
+- The current fork publishes from `origin/main`; if an `origin/staging` branch is added later, treat it as the pre-promotion image track rather than the promoted baseline.
+- `upstream` points at `nearai/ironclaw` for comparison only. Treat it as fetch-only even if the local remote config exposes a push URL; never plan or execute pushes to `upstream`.
+- Historical validation branches `v0.23-fresh-install`, `v0.23-fresh-install-local`, and `v0.23-fresh-install-refresh` are retired. Do not use them for new update work unless you are doing forensic comparison.
+- For release-alignment or clean-upgrade work, start by diffing the current worktree against `origin/main`. Reopen broader `upstream/main` or `upstream/staging` comparison only when validating divergence or planning a sync.
+- Prefer updating the fork baseline directly instead of creating new long-lived release-alignment branches.
+- Clean upgrades for deployed environments must prefer pullable GHCR images over local source builds. Treat local build-only compose or ad hoc `docker build` paths as dev or forensic flows unless the task explicitly requires rebuilding locally.
+- Published GHCR branch tags should mirror the fork branches that operators may follow for automated pull-based upgrades: `:main` for the promoted fork baseline, and `:staging` only when the fork actually carries a staging branch. Use release tags or digests when you need a pinned rollout instead of a moving branch tag.
+- When the running container and local git history disagree, verify which checkout, image tag, and image digest the container actually uses before changing code. Use `docker-compose.yml`, workflow files, and deployment docs/scripts as runtime source-of-truth references.
+- When adding or changing image publication, keep all runtime images that must interoperate version-matched, update compose/docs/scripts/workflows together, and prefer explicit version tags or digests over mutable `latest`-only rollout plans.
+- If operators want automatic refresh via Watchtower, Dockhand, or scheduled `docker compose pull`, keep the moving branch tags (`:main`, optional `:staging`) and the pinned release tags available simultaneously so both managed and controlled rollout styles remain possible.
+- Record which upstream commits were cherry-picked, skipped, or deferred when staging diverges from main.
+
 ## Architecture Mental Model
 
 - Channels normalize external input into `IncomingMessage`; `ChannelManager` merges all active channel streams.

@@ -200,6 +200,7 @@ impl Config {
                 wasm_channels_enabled: false,
                 configured_wasm_channels: Vec::new(),
                 wasm_channel_owner_ids: HashMap::new(),
+                telegram_polling_enabled: true,
             },
             agent: AgentConfig::for_testing(),
             safety: SafetyConfig {

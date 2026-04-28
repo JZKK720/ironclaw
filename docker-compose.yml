@@ -1,3 +1,5 @@
+name: ${COMPOSE_PROJECT_NAME:-ironclaw-v0-26}
+
 # Local development only — do NOT use these credentials in production.
 services:
   postgres:
@@ -16,14 +18,19 @@ services:
       timeout: 3s
       retries: 5
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - ironclaw
+
   ironclaw:
-    # Image is published to GHCR by GitHub Actions on every push to fork/main.
-    # Watchtower polls this tag hourly and restarts the container when a new
-    # digest is available — no manual docker pull or local rebuild needed.
-    #
-    # To force a local build instead (e.g., while developing patches):
-    #   docker compose build ironclaw && docker compose up -d ironclaw
-    image: ghcr.io/jzkk720/ironclaw:latest
+    # Default to the fork's moving main tag for pull-based upgrades.
+    # Pin IRONCLAW_APP_IMAGE to a release tag or digest in .env for controlled rollouts.
+    image: ${IRONCLAW_APP_IMAGE:-ghcr.io/jzkk720/ironclaw:main}
     # Keep build config so `docker compose build` still works for local dev.
     build:
       context: .
@@ -38,6 +45,8 @@ services:
       GATEWAY_HOST: 0.0.0.0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       ONBOARD_COMPLETED: "true"
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:main}
+      SANDBOX_AUTO_PULL: ${SANDBOX_AUTO_PULL:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Run as root so the process can access the Docker socket for sandbox sub-workers.
@@ -49,6 +58,7 @@ services:
       - "127.0.0.1:3231:3000"
       - "127.0.0.1:8281:8080"
     volumes:
+      - ./extensions/ironclaw-home:/home/ironclaw/.ironclaw
       # Mount the host Docker socket so ironclaw can spawn sandbox sub-worker containers.
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
@@ -59,7 +69,7 @@ services:
   # The ironclaw orchestrator spawns containers from this image on demand via the Docker API;
   # this service is never started by `docker compose up`.
   ironclaw-worker:
-    image: ghcr.io/jzkk720/ironclaw-worker:latest
+    image: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:main}
     build:
       context: .
       dockerfile: Dockerfile.worker

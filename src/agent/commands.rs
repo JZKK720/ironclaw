@@ -693,7 +693,7 @@ impl Agent {
             "help" => Ok(SubmissionResult::response(concat!(
                 "System:\n",
                 "  /help             Show this help\n",
-                "  /model [name]     Show or switch the active model\n",
+                "  /model MODEL_NAME Show or switch the active model\n",
                 "  /version          Show version info\n",
                 "  /tools            List available tools\n",
                 "  /debug            Toggle debug mode\n",
@@ -851,16 +851,14 @@ impl Agent {
                                 let marker = if *m == current { " (active)" } else { "" };
                                 out.push_str(&format!("  {}{}\n", m, marker));
                             }
-                            out.push_str("\nUse /model <name> to switch.");
+                            out.push_str("\nUse /model MODEL_NAME to switch.");
                         }
                         Ok(_) => {
-                            out.push_str(
-                                "\nCould not fetch model list. Use /model <name> to switch.",
-                            );
+                            out.push_str("\nCould not fetch model list. Use /model MODEL_NAME to switch.");
                         }
                         Err(e) => {
                             out.push_str(&format!(
-                                "\nCould not fetch models: {}. Use /model <name> to switch.",
+                                "\nCould not fetch models: {}. Use /model MODEL_NAME to switch.",
                                 e
                             ));
                         }

@@ -416,6 +416,7 @@ mod tests {
             wasm_channels_enabled: false,
             configured_wasm_channels: Vec::new(),
             wasm_channel_owner_ids: std::collections::HashMap::new(),
+            telegram_polling_enabled: true,
         }
     }
 

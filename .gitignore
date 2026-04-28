@@ -51,6 +51,18 @@ trace_*.json
 .worktrees/
 .ironclaw/
 
+# Local IronClaw runtime home used by docker-compose for dev
+extensions/ironclaw-home/
+extensions/ironclaw-home/.env
+extensions/ironclaw-home/ironclaw.pid
+extensions/ironclaw-home/channels/*.capabilities.json
+extensions/ironclaw-home/installed_skills/
+extensions/ironclaw-home/*-allowFrom.json
+extensions/ironclaw-home/*-pairing.json
+
+# Local probe and debug output
+.local/
+
 # Python cache
 __pycache__/
 *.pyc

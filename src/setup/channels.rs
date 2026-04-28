@@ -166,9 +166,9 @@ pub async fn setup_tunnel(settings: &Settings) -> Result<TunnelSettings, Channel
     }
 
     println!();
-    print_info("Tunnel Configuration (for webhook endpoints):");
+    print_info("Tunnel Configuration (optional, for public webhook endpoints):");
     print_info("A tunnel exposes your local agent to the internet, enabling:");
-    print_info("  - Instant Telegram message delivery (instead of polling)");
+    print_info("  - Optional Telegram webhook delivery when you disable WASM polling");
     print_info("  - Slack, Discord, GitHub webhooks");
     println!();
 
