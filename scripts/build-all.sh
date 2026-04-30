@@ -18,8 +18,4 @@ echo "Building IronClaw..."
 cargo build --release
 
 echo ""
-echo "Building ironclaw-worker Docker image..."
-docker build -f Dockerfile.worker -t ironclaw-worker:latest .
-
-echo ""
 echo "Done. Binary: target/release/ironclaw"

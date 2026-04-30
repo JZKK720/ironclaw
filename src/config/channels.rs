@@ -32,8 +32,6 @@ pub struct ChannelsConfig {
     /// Per-channel owner user IDs. When set, the channel only responds to this user.
     /// Key: channel name (e.g., "telegram"), Value: owner user ID.
     pub wasm_channel_owner_ids: HashMap<String, i64>,
-    /// Prefer Telegram polling by default, even when a tunnel URL exists.
-    pub telegram_polling_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -450,11 +448,6 @@ impl ChannelsConfig {
                 }
                 ids
             },
-            telegram_polling_enabled: db_first_bool(
-                cs.telegram_polling_enabled,
-                defaults.telegram_polling_enabled,
-                "TELEGRAM_POLLING_ENABLED",
-            )?,
         })
     }
 }

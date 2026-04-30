@@ -257,9 +257,8 @@ pub struct Settings {
 
     /// Per-tool permission overrides.
     ///
-    /// Keys are tool names; values override the built-in tier defaults from
-    /// `TOOL_RISK_DEFAULTS`.  Absent tools fall back to the tier default, or
-    /// `AskEachTime` if the tool is unknown.
+    /// Keys are tool names; persisted values are authoritative. Absent tools
+    /// fall back to seeded defaults for well-known tools, then `AskEachTime`.
     #[serde(default)]
     pub tool_permissions:
         std::collections::HashMap<String, crate::tools::permissions::PermissionState>,
@@ -438,10 +437,6 @@ pub struct ChannelSettings {
     #[serde(default)]
     pub wasm_channel_owner_ids: std::collections::HashMap<String, i64>,
 
-    /// Prefer Telegram polling by default, even when a tunnel is configured.
-    #[serde(default)]
-    pub telegram_polling_enabled: bool,
-
     /// Enabled WASM channels by name.
     /// Primarily used by the setup wizard to track which channels were configured.
     ///
@@ -483,7 +478,6 @@ impl Default for ChannelSettings {
             signal_group_policy: None,
             signal_group_allow_from: None,
             wasm_channel_owner_ids: std::collections::HashMap::new(),
-            telegram_polling_enabled: true,
             wasm_channels: Vec::new(),
             wasm_channels_enabled: true,
             wasm_channels_dir: None,
@@ -1592,12 +1586,6 @@ mod tests {
             settings.channels.wasm_channel_owner_ids.get("telegram"),
             Some(&987654321)
         );
-    }
-
-    #[test]
-    fn test_telegram_polling_enabled_defaults_true() {
-        let settings = Settings::default();
-        assert!(settings.channels.telegram_polling_enabled);
     }
 
     #[test]

@@ -369,7 +369,6 @@ key first, then falls back to the standard env var.
   continue in the browser history sidebar. Open mode keeps the bot usable in
   Telegram, but it creates a split identity that does not automatically merge
   into the web UI thread list.
-- Defaults to WASM polling; webhook setup is optional
 - Optional webhook secret auto-generation for webhook mode
 
 **SecretsContext creation** (`init_secrets_context`):

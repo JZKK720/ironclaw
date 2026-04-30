@@ -17,7 +17,6 @@ use rig::message::{
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -27,10 +26,6 @@ use std::str::FromStr;
 
 use crate::llm::costs;
 use crate::llm::error::LlmError;
-use crate::llm::models::{
-    list_anthropic_models, list_ollama_models, list_openai_compatible_models,
-    list_openai_models,
-};
 use crate::llm::provider::{
     ChatMessage, CompletionRequest, CompletionResponse, FinishReason, LlmProvider,
     ToolCall as IronToolCall, ToolCompletionRequest, ToolCompletionResponse,
@@ -41,33 +36,12 @@ use crate::llm::tool_schema::{ToolSchemaPolicy, shape_tool_schema};
 #[cfg(test)]
 use crate::llm::tool_schema::{normalize_schema_strict, serialize_json_capped};
 
-#[derive(Clone, Debug)]
-enum ModelListSource {
-    None,
-    OpenAi {
-        api_key: Option<SecretString>,
-    },
-    Anthropic {
-        api_key: Option<SecretString>,
-    },
-    OpenAiCompatible {
-        provider: String,
-        base_url: String,
-        api_key: Option<SecretString>,
-        extra_headers: Vec<(String, String)>,
-    },
-    Ollama {
-        base_url: String,
-    },
-}
-
 /// Adapter that wraps a rig-core `CompletionModel` and implements `LlmProvider`.
 pub struct RigAdapter<M: CompletionModel> {
     model: M,
     model_name: String,
     input_cost: Decimal,
     output_cost: Decimal,
-    model_list_source: ModelListSource,
     /// Prompt cache retention policy (Anthropic only).
     /// When not `CacheRetention::None`, injects top-level `cache_control`
     /// via `additional_params` for Anthropic automatic caching. Also controls
@@ -89,43 +63,9 @@ impl<M: CompletionModel> RigAdapter<M> {
             model_name: name,
             input_cost,
             output_cost,
-            model_list_source: ModelListSource::None,
             cache_retention: CacheRetention::None,
             unsupported_params: HashSet::new(),
         }
-    }
-
-    pub fn with_openai_model_list(mut self, api_key: Option<SecretString>) -> Self {
-        self.model_list_source = ModelListSource::OpenAi { api_key };
-        self
-    }
-
-    pub fn with_anthropic_model_list(mut self, api_key: Option<SecretString>) -> Self {
-        self.model_list_source = ModelListSource::Anthropic { api_key };
-        self
-    }
-
-    pub fn with_openai_compatible_model_list(
-        mut self,
-        provider: impl Into<String>,
-        base_url: impl Into<String>,
-        api_key: Option<SecretString>,
-        extra_headers: Vec<(String, String)>,
-    ) -> Self {
-        self.model_list_source = ModelListSource::OpenAiCompatible {
-            provider: provider.into(),
-            base_url: base_url.into(),
-            api_key,
-            extra_headers,
-        };
-        self
-    }
-
-    pub fn with_ollama_model_list(mut self, base_url: impl Into<String>) -> Self {
-        self.model_list_source = ModelListSource::Ollama {
-            base_url: base_url.into(),
-        };
-        self
     }
 
     /// Set Anthropic prompt cache retention policy.
@@ -719,46 +659,6 @@ where
 
     fn effective_model_name(&self, _requested_model: Option<&str>) -> String {
         self.active_model_name()
-    }
-
-    async fn list_models(&self) -> Result<Vec<String>, LlmError> {
-        match &self.model_list_source {
-            ModelListSource::None => Ok(Vec::new()),
-            ModelListSource::OpenAi { api_key } => {
-                let api_key = api_key.as_ref().map(|key| key.expose_secret().to_string());
-                let Some(api_key) = api_key else {
-                    return Err(LlmError::AuthFailed {
-                        provider: "openai".to_string(),
-                    });
-                };
-                list_openai_models(&api_key).await
-            }
-            ModelListSource::Anthropic { api_key } => {
-                let api_key = api_key.as_ref().map(|key| key.expose_secret().to_string());
-                let Some(api_key) = api_key else {
-                    return Err(LlmError::AuthFailed {
-                        provider: "anthropic".to_string(),
-                    });
-                };
-                list_anthropic_models(&api_key).await
-            }
-            ModelListSource::OpenAiCompatible {
-                provider,
-                base_url,
-                api_key,
-                extra_headers,
-            } => {
-                let api_key = api_key.as_ref().map(|key| key.expose_secret().to_string());
-                list_openai_compatible_models(
-                    provider,
-                    base_url,
-                    api_key.as_deref(),
-                    extra_headers,
-                )
-                .await
-            }
-            ModelListSource::Ollama { base_url } => list_ollama_models(base_url).await,
-        }
     }
 
     fn set_model(&self, _model: &str) -> Result<(), LlmError> {

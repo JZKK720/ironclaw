@@ -315,20 +315,8 @@ fn create_openai_compat_from_registry(
         "Using OpenAI-compatible provider"
     );
 
-    let adapter = if config.provider_id == "openai" {
-        RigAdapter::new(model, &config.model)
-            .with_openai_model_list(config.api_key.clone())
-            .with_unsupported_params(config.unsupported_params.clone())
-    } else {
-        RigAdapter::new(model, &config.model)
-            .with_openai_compatible_model_list(
-                &config.provider_id,
-                &config.base_url,
-                config.api_key.clone(),
-                config.extra_headers.clone(),
-            )
-            .with_unsupported_params(config.unsupported_params.clone())
-    };
+    let adapter = RigAdapter::new(model, &config.model)
+        .with_unsupported_params(config.unsupported_params.clone());
     Ok(Arc::new(adapter))
 }
 
@@ -398,7 +386,6 @@ fn create_anthropic_from_registry(
 
     Ok(Arc::new(
         RigAdapter::new(model, &config.model)
-            .with_anthropic_model_list(config.api_key.clone())
             .with_cache_retention(cache_retention)
             .with_unsupported_params(config.unsupported_params.clone()),
     ))
@@ -429,7 +416,6 @@ fn create_ollama_from_registry(
     );
 
     let adapter = RigAdapter::new(model, &config.model)
-        .with_ollama_model_list(&config.base_url)
         .with_unsupported_params(config.unsupported_params.clone());
     Ok(Arc::new(adapter))
 }
