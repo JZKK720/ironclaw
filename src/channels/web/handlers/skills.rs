@@ -189,7 +189,7 @@ pub async fn skills_search_handler(
     Ok(Json(SkillSearchResponse {
         catalog: catalog_json,
         installed,
-        registry_url: catalog.registry_url().to_string(),
+        registry_url: catalog.resolved_registry_url(),
         catalog_error,
     }))
 }
@@ -258,12 +258,14 @@ pub async fn skills_install_handler(
                 Err(e) => return Err((StatusCode::BAD_REQUEST, e.to_string())),
             }
         };
-        let url =
-            ironclaw_skills::catalog::skill_download_url(catalog.registry_url(), &download_key);
+        let install_payload = crate::tools::builtin::skill_tools::fetch_catalog_payload(
+            catalog.as_ref(),
+            &download_key,
+        )
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
         resolved_download_key = Some(download_key);
-        crate::tools::builtin::skill_tools::fetch_skill_payload(&url)
-            .await
-            .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?
+        install_payload
     } else {
         return Ok(Json(ActionResponse::fail(
             "Provide 'content' or 'url' to install a skill".to_string(),

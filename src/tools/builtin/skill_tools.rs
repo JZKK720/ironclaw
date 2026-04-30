@@ -822,9 +822,10 @@ impl Tool for SkillInstallTool {
         };
 
         if let Some(required_skills) = loaded_required_skills {
+            let registry_url = self.catalog.resolved_registry_url();
             let chain_report = install_missing_skill_dependencies(
                 &self.registry,
-                self.catalog.registry_url(),
+                &registry_url,
                 required_skills,
                 |url| async move { fetch_skill_payload(&url).await },
             )
@@ -858,11 +859,7 @@ impl Tool for SkillInstallTool {
             )
             .await?;
             requested_identifier = Some(download_key.clone());
-            let download_url = ironclaw_skills::catalog::skill_download_url(
-                self.catalog.registry_url(),
-                &download_key,
-            );
-            fetch_skill_payload(&download_url)
+            fetch_catalog_payload(self.catalog.as_ref(), &download_key)
                 .await
                 .map_err(ToolError::from)?
         };
@@ -981,9 +978,10 @@ impl Tool for SkillInstallTool {
                 ..Default::default()
             }
         } else {
+            let registry_url = self.catalog.resolved_registry_url();
             install_missing_skill_dependencies(
                 &self.registry,
-                self.catalog.registry_url(),
+                &registry_url,
                 required_skills,
                 |url| async move { fetch_skill_payload(&url).await },
             )
@@ -1806,6 +1804,36 @@ pub(crate) async fn fetch_skill_payload(url: &str) -> Result<SkillInstallPayload
     };
 
     validate_payload_skill_size(payload)
+}
+
+pub(crate) async fn fetch_catalog_payload(
+    catalog: &SkillCatalog,
+    slug: &str,
+) -> Result<SkillInstallPayload, SkillFetchError> {
+    let mut last_error = None;
+
+    for registry_url in catalog.registry_urls() {
+        let download_url = ironclaw_skills::catalog::skill_download_url(&registry_url, slug);
+        match fetch_skill_payload(&download_url).await {
+            Ok(payload) => {
+                catalog.mark_registry_success(&registry_url);
+                return Ok(payload);
+            }
+            Err(error) => {
+                tracing::debug!(
+                    "Skill catalog download for '{}' via '{}' failed: {}",
+                    slug,
+                    registry_url,
+                    error
+                );
+                last_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        SkillFetchError::from_message(format!("Could not download skill '{}'", slug))
+    }))
 }
 
 #[allow(dead_code)]

@@ -7,7 +7,7 @@
 //! Configuration:
 //! - `CLAWHUB_REGISTRY` env var overrides the default base URL
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,23 @@ const MAX_RESULTS: usize = 25;
 
 /// HTTP request timeout for catalog queries.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn normalize_registry_url(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_string()
+}
+
+fn push_registry_candidate(candidates: &mut Vec<String>, registry_url: &str) {
+    let normalized = normalize_registry_url(registry_url);
+    if normalized.is_empty()
+        || candidates
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(&normalized))
+    {
+        return;
+    }
+
+    candidates.push(normalized);
+}
 
 /// Result of a catalog search, carrying both results and any error that occurred.
 #[derive(Debug, Clone)]
@@ -234,45 +251,35 @@ struct CachedSearch {
 pub struct SkillCatalog {
     /// Base URL for the registry.
     registry_url: String,
+    /// Additional registry URLs to try if the primary URL fails.
+    fallback_registry_urls: Vec<String>,
     /// HTTP client (reused across requests).
     client: reqwest::Client,
     /// In-memory search cache keyed by query string.
     cache: RwLock<Vec<CachedSearch>>,
+    /// Last registry URL that successfully served a request.
+    last_successful_registry_url: Mutex<String>,
 }
 
 impl SkillCatalog {
-    /// Create a new catalog.
-    ///
-    /// Reads `CLAWHUB_REGISTRY` (or legacy `CLAWDHUB_REGISTRY`) from the
-    /// environment, falling back to the Convex backend.
-    pub fn new() -> Self {
-        let registry_url = std::env::var("CLAWHUB_REGISTRY")
-            .or_else(|_| std::env::var("CLAWDHUB_REGISTRY"))
-            .unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
+    fn with_urls_and_timeout(url: &str, fallback_registry_urls: Vec<String>, timeout: Duration) -> Self {
+        let registry_url = {
+            let normalized = normalize_registry_url(url);
+            if normalized.is_empty() {
+                DEFAULT_REGISTRY_URL.to_string()
+            } else {
+                normalized
+            }
+        };
 
-        let client = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .user_agent(concat!("ironclaw/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::warn!("Failed to build HTTP client: {e}");
-                reqwest::Client::default()
-            });
+        let fallback_registry_urls = fallback_registry_urls
+            .into_iter()
+            .map(|candidate| normalize_registry_url(&candidate))
+            .filter(|candidate| {
+                !candidate.is_empty() && !candidate.eq_ignore_ascii_case(&registry_url)
+            })
+            .collect();
 
-        Self {
-            registry_url,
-            client,
-            cache: RwLock::new(Vec::new()),
-        }
-    }
-
-    /// Create a catalog with a custom registry URL (for testing).
-    pub fn with_url(url: &str) -> Self {
-        Self::with_url_and_timeout(url, REQUEST_TIMEOUT)
-    }
-
-    /// Create a catalog with a custom registry URL and timeout (for testing).
-    pub fn with_url_and_timeout(url: &str, timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .user_agent(concat!("ironclaw/", env!("CARGO_PKG_VERSION")))
@@ -283,10 +290,88 @@ impl SkillCatalog {
             });
 
         Self {
-            registry_url: url.to_string(),
+            registry_url: registry_url.clone(),
+            fallback_registry_urls,
             client,
             cache: RwLock::new(Vec::new()),
+            last_successful_registry_url: Mutex::new(registry_url),
         }
+    }
+
+    /// Create a new catalog.
+    ///
+    /// Reads `CLAWHUB_REGISTRY` (or legacy `CLAWDHUB_REGISTRY`) from the
+    /// environment, falling back to the Convex backend.
+    pub fn new() -> Self {
+        let registry_url = std::env::var("CLAWHUB_REGISTRY")
+            .or_else(|_| std::env::var("CLAWDHUB_REGISTRY"))
+            .map(|value| normalize_registry_url(&value))
+            .unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
+
+        let fallback_registry_urls = if registry_url.eq_ignore_ascii_case(DEFAULT_REGISTRY_URL) {
+            Vec::new()
+        } else {
+            vec![DEFAULT_REGISTRY_URL.to_string()]
+        };
+
+        Self::with_urls_and_timeout(&registry_url, fallback_registry_urls, REQUEST_TIMEOUT)
+    }
+
+    /// Create a catalog with a custom registry URL (for testing).
+    pub fn with_url(url: &str) -> Self {
+        Self::with_urls_and_timeout(url, Vec::new(), REQUEST_TIMEOUT)
+    }
+
+    /// Create a catalog with a custom registry URL and timeout (for testing).
+    pub fn with_url_and_timeout(url: &str, timeout: Duration) -> Self {
+        Self::with_urls_and_timeout(url, Vec::new(), timeout)
+    }
+
+    fn candidate_registry_urls(&self) -> Vec<String> {
+        let mut candidates = Vec::with_capacity(self.fallback_registry_urls.len() + 2);
+        let active_registry_url = self.resolved_registry_url();
+
+        push_registry_candidate(&mut candidates, &active_registry_url);
+        push_registry_candidate(&mut candidates, &self.registry_url);
+        for registry_url in &self.fallback_registry_urls {
+            push_registry_candidate(&mut candidates, registry_url);
+        }
+
+        candidates
+    }
+
+    fn note_successful_registry_url(&self, registry_url: &str) {
+        let normalized = normalize_registry_url(registry_url);
+        if normalized.is_empty() {
+            return;
+        }
+
+        match self.last_successful_registry_url.lock() {
+            Ok(mut current) => *current = normalized,
+            Err(e) => tracing::warn!(
+                "Skill catalog registry URL lock poisoned while updating active registry: {}",
+                e
+            ),
+        }
+    }
+
+    /// Get the last registry URL that successfully served a request.
+    pub fn resolved_registry_url(&self) -> String {
+        match self.last_successful_registry_url.lock() {
+            Ok(current) => current.clone(),
+            Err(e) => {
+                tracing::warn!(
+                    "Skill catalog registry URL lock poisoned while reading active registry: {}",
+                    e
+                );
+                self.registry_url.clone()
+            }
+        }
+    }
+
+    /// Record a registry URL that successfully served a request.
+    pub fn mark_registry_success(&self, registry_url: &str) {
+        self.note_successful_registry_url(registry_url);
     }
 
     /// Search for skills in the catalog.
@@ -316,15 +401,17 @@ impl SkillCatalog {
             let mut cache = self.cache.write().await;
             // Remove stale entry for this query
             cache.retain(|c| c.query != query_lower);
-            // Limit cache size to prevent unbounded growth
-            if cache.len() >= 50 {
-                cache.remove(0);
+            if outcome.error.is_none() {
+                // Limit cache size to prevent unbounded growth
+                if cache.len() >= 50 {
+                    cache.remove(0);
+                }
+                cache.push(CachedSearch {
+                    query: query_lower,
+                    outcome: outcome.clone(),
+                    fetched_at: Instant::now(),
+                });
             }
-            cache.push(CachedSearch {
-                query: query_lower,
-                outcome: outcome.clone(),
-                fetched_at: Instant::now(),
-            });
         }
 
         outcome
@@ -332,46 +419,86 @@ impl SkillCatalog {
 
     /// Fetch search results from the ClawHub API.
     async fn fetch_search(&self, query: &str) -> CatalogSearchOutcome {
-        let url = format!("{}/api/v1/search", self.registry_url);
+        let mut last_error = None;
 
-        let response = match self.client.get(&url).query(&[("q", query)]).send().await {
-            Ok(resp) => resp,
-            Err(e) => {
-                tracing::warn!("Catalog search failed (network): {}", e);
-                return CatalogSearchOutcome {
-                    results: Vec::new(),
-                    error: Some("Registry unreachable".to_string()),
-                };
+        for registry_url in self.candidate_registry_urls() {
+            match self.fetch_search_from_registry(&registry_url, query).await {
+                Ok(results) => {
+                    self.note_successful_registry_url(&registry_url);
+                    return CatalogSearchOutcome {
+                        results,
+                        error: None,
+                    };
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        "Catalog search via '{}' failed: {}",
+                        registry_url,
+                        error
+                    );
+                    last_error = Some(error);
+                }
             }
-        };
+        }
+
+        let error = last_error.unwrap_or_else(|| "Registry unreachable".to_string());
+        tracing::warn!(
+            "Catalog search failed for '{}' across all registry URLs: {}",
+            query,
+            error
+        );
+        CatalogSearchOutcome {
+            results: Vec::new(),
+            error: Some(error),
+        }
+    }
+
+    async fn fetch_search_from_registry(
+        &self,
+        registry_url: &str,
+        query: &str,
+    ) -> Result<Vec<CatalogEntry>, String> {
+        let url = format!("{}/api/v1/search", registry_url);
+
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("q", query)])
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::debug!(
+                    "Catalog search failed (network) via '{}': {}",
+                    registry_url,
+                    e
+                );
+                "Registry unreachable".to_string()
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "(no body)".to_string());
             tracing::debug!(
-                "Catalog search returned status {}: {}",
+                "Catalog search via '{}' returned status {}: {}",
+                registry_url,
                 status,
-                response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "(no body)".to_string())
+                body
             );
-            return CatalogSearchOutcome {
-                results: Vec::new(),
-                error: Some(format!("Registry returned status {status}")),
-            };
+            return Err(format!("Registry returned status {status}"));
         }
 
         // Parse the response body as text first so we can try multiple formats.
-        let body = match response.text().await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::debug!("Catalog search: failed to read response body: {}", e);
-                return CatalogSearchOutcome {
-                    results: Vec::new(),
-                    error: Some("Failed to read registry response".to_string()),
-                };
-            }
-        };
+        let body = response.text().await.map_err(|e| {
+            tracing::debug!(
+                "Catalog search via '{}' failed to read response body: {}",
+                registry_url,
+                e
+            );
+            "Failed to read registry response".to_string()
+        })?;
 
         // Try wrapped format first: {"results": [...]}
         // Then fall back to bare array: [...]
@@ -382,32 +509,30 @@ impl SkillCatalog {
             arr
         } else {
             let preview = body.get(..200).unwrap_or(&body);
-            tracing::debug!("Catalog search: failed to parse response: {}", preview);
-            return CatalogSearchOutcome {
-                results: Vec::new(),
-                error: Some("Invalid response from registry".to_string()),
-            };
+            tracing::debug!(
+                "Catalog search via '{}' failed to parse response: {}",
+                registry_url,
+                preview
+            );
+            return Err("Invalid response from registry".to_string());
         };
 
-        CatalogSearchOutcome {
-            results: raw_results
-                .into_iter()
-                .take(MAX_RESULTS)
-                .map(|r| CatalogEntry {
-                    slug: r.slug,
-                    name: r.display_name.unwrap_or_default(),
-                    description: r.summary.unwrap_or_default(),
-                    version: r.version.unwrap_or_default(),
-                    score: r.score.unwrap_or(0.0),
-                    updated_at: r.updated_at,
-                    stars: None,
-                    downloads: None,
-                    installs_current: None,
-                    owner: None,
-                })
-                .collect(),
-            error: None,
-        }
+        Ok(raw_results
+            .into_iter()
+            .take(MAX_RESULTS)
+            .map(|r| CatalogEntry {
+                slug: r.slug,
+                name: r.display_name.unwrap_or_default(),
+                description: r.summary.unwrap_or_default(),
+                version: r.version.unwrap_or_default(),
+                score: r.score.unwrap_or(0.0),
+                updated_at: r.updated_at,
+                stars: None,
+                downloads: None,
+                installs_current: None,
+                owner: None,
+            })
+            .collect())
     }
 
     /// Fetch detailed information for a single skill by slug.
@@ -415,25 +540,80 @@ impl SkillCatalog {
     /// Calls `GET /api/v1/skills/{slug}` and returns the detail if available.
     /// Returns `None` on any network or parse error (best-effort).
     pub async fn fetch_skill_detail(&self, slug: &str) -> Option<SkillDetail> {
+        let mut last_error = None;
+
+        for registry_url in self.candidate_registry_urls() {
+            match self.fetch_skill_detail_from_registry(&registry_url, slug).await {
+                Ok(detail) => {
+                    self.note_successful_registry_url(&registry_url);
+                    return Some(detail);
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        "Skill detail for '{}' via '{}' failed: {}",
+                        slug,
+                        registry_url,
+                        error
+                    );
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        if let Some(error) = last_error {
+            tracing::debug!(
+                "Skill detail for '{}' failed across all registry URLs: {}",
+                slug,
+                error
+            );
+        }
+        None
+    }
+
+    async fn fetch_skill_detail_from_registry(
+        &self,
+        registry_url: &str,
+        slug: &str,
+    ) -> Result<SkillDetail, String> {
         let url = format!(
             "{}/api/v1/skills/{}",
-            self.registry_url,
+            registry_url,
             urlencoding::encode(slug)
         );
 
-        let response = self.client.get(&url).send().await.ok()?;
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            tracing::debug!(
+                "Skill detail for '{}' failed (network) via '{}': {}",
+                slug,
+                registry_url,
+                e
+            );
+            "Registry unreachable".to_string()
+        })?;
         if !response.status().is_success() {
             tracing::debug!(
-                "Skill detail for '{}' returned status {}",
+                "Skill detail for '{}' via '{}' returned status {}",
                 slug,
+                registry_url,
                 response.status()
             );
-            return None;
+            return Err(format!("Registry returned status {}", response.status()));
         }
 
-        let wrapper = response.json::<SkillDetailResponse>().await.ok()?;
+        let wrapper = response
+            .json::<SkillDetailResponse>()
+            .await
+            .map_err(|e| {
+                tracing::debug!(
+                    "Skill detail for '{}' via '{}' failed to parse: {}",
+                    slug,
+                    registry_url,
+                    e
+                );
+                "Invalid response from registry".to_string()
+            })?;
         let inner = wrapper.skill;
-        Some(SkillDetail {
+        Ok(SkillDetail {
             slug: inner.slug,
             display_name: inner.display_name,
             summary: inner.summary,
@@ -479,6 +659,19 @@ impl SkillCatalog {
     /// Get the registry base URL.
     pub fn registry_url(&self) -> &str {
         &self.registry_url
+    }
+
+    /// List registry base URLs in fallback order.
+    pub fn registry_urls(&self) -> Vec<String> {
+        self.candidate_registry_urls()
+    }
+
+    /// Construct candidate download URLs in fallback order for a skill slug.
+    pub fn download_urls_for_slug(&self, slug: &str) -> Vec<String> {
+        self.candidate_registry_urls()
+            .into_iter()
+            .map(|registry_url| skill_download_url(&registry_url, slug))
+            .collect()
     }
 
     /// Clear the search cache.
@@ -535,19 +728,69 @@ pub fn shared_catalog() -> Arc<SkillCatalog> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn spawn_search_server(
+        body: &str,
+    ) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test search server");
+        let address = listener.local_addr().expect("get test search server address");
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_for_task = Arc::clone(&hits);
+        let response_body = body.to_string();
+
+        let handle = tokio::spawn(async move {
+            loop {
+                let accept_result = listener.accept().await;
+                let (mut stream, _) = match accept_result {
+                    Ok(pair) => pair,
+                    Err(_) => break,
+                };
+
+                let hits = Arc::clone(&hits_for_task);
+                let response_body = response_body.clone();
+                tokio::spawn(async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    let mut request_buffer = [0_u8; 1024];
+                    let _ = stream.read(&mut request_buffer).await;
+
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        response_body.as_bytes().len(),
+                        response_body
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        (format!("http://{}", address), hits, handle)
+    }
 
     #[test]
     fn test_default_registry_url() {
         // When CLAWHUB_REGISTRY is not set, should use default
         let catalog = SkillCatalog::with_url(DEFAULT_REGISTRY_URL);
         assert_eq!(catalog.registry_url(), DEFAULT_REGISTRY_URL);
+        assert_eq!(catalog.resolved_registry_url(), DEFAULT_REGISTRY_URL);
     }
 
     #[test]
     fn test_custom_registry_url() {
         let catalog = SkillCatalog::with_url("https://custom.registry.example");
         assert_eq!(catalog.registry_url(), "https://custom.registry.example");
+        assert_eq!(
+            catalog.resolved_registry_url(),
+            "https://custom.registry.example"
+        );
     }
 
     #[tokio::test]
@@ -571,14 +814,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cache_is_populated_after_search() {
+    async fn test_failed_search_is_not_cached() {
         let catalog = SkillCatalog::with_url("http://127.0.0.1:1");
 
-        // First search populates cache (even with empty results)
         catalog.search("cached-query").await;
 
         let cache = catalog.cache.read().await;
+        assert!(!cache.iter().any(|c| c.query == "cached-query"));
+    }
+
+    #[tokio::test]
+    async fn test_cache_is_populated_after_successful_search() {
+        let response =
+            r#"{"results":[{"slug":"finance/mortgage-calculator","displayName":"Mortgage Calculator","summary":"A skill","version":"1.0.0","score":3.5}]}"#;
+        let (registry_url, hits, server_handle) = spawn_search_server(response).await;
+        let catalog = SkillCatalog::with_url(&registry_url);
+
+        let first = catalog.search("cached-query").await;
+        let second = catalog.search("cached-query").await;
+
+        assert!(first.error.is_none());
+        assert!(second.error.is_none());
+        let cache = catalog.cache.read().await;
         assert!(cache.iter().any(|c| c.query == "cached-query"));
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        server_handle.abort();
     }
 
     #[tokio::test]
@@ -791,6 +1052,34 @@ mod tests {
         let catalog = SkillCatalog::with_url("http://127.0.0.1:1");
         let result = catalog.fetch_skill_detail("nonexistent/skill").await;
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_search_uses_fallback_registry_and_updates_resolved_url() {
+        let response =
+            r#"{"results":[{"slug":"finance/mortgage-calculator","displayName":"Mortgage Calculator","summary":"A skill","version":"1.0.0","score":3.5}]}"#;
+        let (fallback_registry_url, hits, server_handle) = spawn_search_server(response).await;
+        let catalog = SkillCatalog::with_urls_and_timeout(
+            "http://127.0.0.1:1",
+            vec![fallback_registry_url.clone()],
+            Duration::from_secs(1),
+        );
+
+        let outcome = catalog.search("mortgage").await;
+
+        assert!(outcome.error.is_none());
+        assert_eq!(outcome.results.len(), 1);
+        assert_eq!(outcome.results[0].slug, "finance/mortgage-calculator");
+        assert_eq!(catalog.resolved_registry_url(), fallback_registry_url);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        let download_urls = catalog.download_urls_for_slug("finance/mortgage-calculator");
+        assert_eq!(
+            download_urls[0],
+            skill_download_url(&fallback_registry_url, "finance/mortgage-calculator")
+        );
+
+        server_handle.abort();
     }
 
     #[test]
