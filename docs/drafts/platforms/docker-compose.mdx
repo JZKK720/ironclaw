@@ -211,6 +211,8 @@ docker compose up -d --no-deps ironclaw
 docker compose up -d
 ```
 
+> If `docker compose pull` fails against GHCR, fix Docker daemon DNS first. The daemon must be able to resolve and reach both `ghcr.io` and `pkg-containers.githubusercontent.com` because GHCR serves manifests and blobs from different hosts.
+
 ---
 
 ## Backups

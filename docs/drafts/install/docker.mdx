@@ -32,7 +32,7 @@ docker run -d \
   -p 3000:3000 \
   -p 8080:8080 \
   # Pin to a specific IronClaw version for reproducible, rollback-friendly deployments.
-  nearai/ironclaw:latest 
+  ghcr.io/jzkk720/ironclaw:latest
 ```
 
 ## Docker Compose
@@ -45,7 +45,7 @@ version: '3.8'
 services:
   ironclaw:
     # Pin to a specific IronClaw version for reproducible, rollback-friendly deployments.
-    image: nearai/ironclaw:latest
+    image: ghcr.io/jzkk720/ironclaw:latest
     container_name: ironclaw
     restart: unless-stopped
 
@@ -121,7 +121,7 @@ docker run -d \
   -v ~/.ironclaw:/home/ironclaw/.ironclaw \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -p 3000:3000 \
-  nearai/ironclaw:latest
+  ghcr.io/jzkk720/ironclaw:latest
 ```
 
 See [Configuration Reference](/setup/configuration) for all options.
@@ -195,7 +195,7 @@ server {
 
 ```bash
 # Pull latest image
-docker pull nearai/ironclaw:latest
+docker pull ghcr.io/jzkk720/ironclaw:latest
 
 # Recreate container
 docker stop ironclaw
@@ -205,12 +205,14 @@ docker run -d \
   -v ~/.ironclaw:/home/ironclaw/.ironclaw \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -p 3000:3000 \
-  nearai/ironclaw:latest
+  ghcr.io/jzkk720/ironclaw:latest
 
 # Or with docker compose
 docker compose pull
 docker compose up -d
 ```
+
+> If `docker pull` or `docker compose pull` fails against GHCR, make sure the Docker daemon can resolve and reach both `ghcr.io` and `pkg-containers.githubusercontent.com`. GHCR serves manifests from `ghcr.io`, but layer blobs are downloaded from `pkg-containers.githubusercontent.com`.
 
 ## Troubleshooting
 
@@ -233,6 +235,15 @@ docker compose up -d
     Change port mapping:
     ```bash
     -p 3002:3000  # Maps host port 3002 to container port 3000
+    ```
+  </Accordion>
+
+  <Accordion title="GHCR pull fails" icon="globe">
+    Check Docker daemon DNS and outbound HTTPS for both hosts:
+    ```bash
+    nslookup ghcr.io
+    nslookup pkg-containers.githubusercontent.com
+    docker pull ghcr.io/jzkk720/ironclaw:latest
     ```
   </Accordion>
 </AccordionGroup>

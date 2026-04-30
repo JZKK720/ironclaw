@@ -43,7 +43,7 @@ ironclaw --version
   <Tab title="Docker">
     ```bash
     # Pull latest image
-    docker pull nearai/ironclaw:latest
+    docker pull ghcr.io/jzkk720/ironclaw:latest
 
     # Recreate container
     docker stop ironclaw
@@ -54,6 +54,8 @@ ironclaw --version
     docker compose pull
     docker compose up -d
     ```
+
+    > If the pull fails, verify the Docker daemon can resolve both `ghcr.io` and `pkg-containers.githubusercontent.com`. GHCR image manifests come from `ghcr.io`, but layer blobs are downloaded from `pkg-containers.githubusercontent.com`.
   </Tab>
 
   <Tab title="From Source">
@@ -115,7 +117,7 @@ If you need to rollback:
 curl -fsSL https://install.ironclaw.ai | bash -s -- --version 0.12.0
 
 # Docker
-docker pull nearai/ironclaw:v0.12.0
+docker pull ghcr.io/jzkk720/ironclaw:0.12.0
 ```
 
 <Warning>
