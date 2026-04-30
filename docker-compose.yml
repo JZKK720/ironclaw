@@ -28,9 +28,9 @@ services:
       - ironclaw
 
   ironclaw:
-    # Default to the fork's moving main tag for pull-based upgrades.
+    # Default to the fork's moving latest tag for pull-based upgrades.
     # Pin IRONCLAW_APP_IMAGE to a release tag or digest in .env for controlled rollouts.
-    image: ${IRONCLAW_APP_IMAGE:-ghcr.io/jzkk720/ironclaw:main}
+    image: ${IRONCLAW_APP_IMAGE:-ghcr.io/jzkk720/ironclaw:latest}
     # Keep build config so `docker compose build` still works for local dev.
     build:
       context: .
@@ -45,7 +45,7 @@ services:
       GATEWAY_HOST: 0.0.0.0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       ONBOARD_COMPLETED: "true"
-      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:main}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:latest}
       SANDBOX_AUTO_PULL: ${SANDBOX_AUTO_PULL:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -69,7 +69,7 @@ services:
   # The ironclaw orchestrator spawns containers from this image on demand via the Docker API;
   # this service is never started by `docker compose up`.
   ironclaw-worker:
-    image: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:main}
+    image: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:latest}
     build:
       context: .
       dockerfile: Dockerfile.worker

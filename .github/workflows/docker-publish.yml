@@ -2,9 +2,7 @@ name: Build and Publish Docker Images
 
 on:
   push:
-    branches: [main, staging]
-    tags:
-      - '**[0-9]+.[0-9]+.[0-9]+*'
+    branches: [main]
   workflow_dispatch:
 
 # Prevent concurrent builds from the same branch
@@ -54,8 +52,6 @@ jobs:
             latest=false
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch
-            type=ref,event=tag
             type=sha,format=long,prefix=sha-
 
       - name: Build and push ironclaw
@@ -79,8 +75,6 @@ jobs:
             latest=false
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch
-            type=ref,event=tag
             type=sha,format=long,prefix=sha-
 
       - name: Build and push ironclaw-worker

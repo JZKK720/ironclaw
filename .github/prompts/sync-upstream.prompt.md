@@ -1,5 +1,5 @@
 ---
-description: "Step-by-step guide to manually merge upstream/staging into fork/main. Use when the weekly sync-upstream workflow fails due to conflicts, or when you want to manually pull upstream changes."
+description: "Step-by-step guide to manually merge upstream/main into fork/main. Use when the weekly sync-upstream workflow fails due to conflicts, or when you want to manually pull upstream changes."
 ---
 
 # Manual Upstream Sync
@@ -29,13 +29,13 @@ git fetch upstream
 
 ```bash
 # How many commits behind?
-git rev-list --count HEAD..upstream/staging
+git rev-list --count HEAD..upstream/main
 
 # Summary of incoming changes
-git log --oneline HEAD..upstream/staging | head -20
+git log --oneline -n 20 HEAD..upstream/main
 
 # Migrations landing?
-git diff HEAD..upstream/staging -- migrations/
+git diff HEAD..upstream/main -- migrations/
 ```
 
 If there are new migrations, check the version numbers don't conflict with any local migration files.
@@ -44,7 +44,7 @@ If there are new migrations, check the version numbers don't conflict with any l
 
 ```bash
 git checkout main
-git merge upstream/staging --no-edit -m "chore: merge upstream/staging ($(git rev-parse --short upstream/staging)) into fork/main"
+git merge upstream/main --no-edit -m "chore: merge upstream/main ($(git rev-parse --short upstream/main)) into fork/main"
 ```
 
 ## Step 5 — Resolve conflicts (if any)

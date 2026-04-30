@@ -29,7 +29,7 @@ fn should_attempt_source_fallback(err: &RegistryError) -> bool {
         // Version-pinned URLs (`releases/download/vX.Y.Z/`) point to an immutable
         // asset; a mismatch there is genuinely suspicious and remains a hard block.
         RegistryError::ChecksumMismatch { url, .. } => {
-            url.contains("github.com/nearai/ironclaw/releases/latest/")
+            url.contains("github.com/JZKK720/ironclaw/releases/latest/")
         }
         // Never fall back for these — they signal a structural problem or a
         // deliberate "already done" state, not a transient artifact issue.
@@ -913,7 +913,7 @@ mod tests {
             "demo",
             "tools-src/demo",
             Some(
-                "http://github.com/nearai/ironclaw/releases/latest/download/demo.wasm".to_string(),
+                "http://github.com/JZKK720/ironclaw/releases/latest/download/demo.wasm".to_string(),
             ),
             None,
         );
@@ -966,7 +966,7 @@ mod tests {
             "demo",
             "tools-src/demo",
             Some(
-                "https://github.com/nearai/ironclaw/releases/latest/download/demo-wasm32-wasip2.tar.gz".to_string(),
+                "https://github.com/JZKK720/ironclaw/releases/latest/download/demo-wasm32-wasip2.tar.gz".to_string(),
             ),
             None, // sha256 = null
         );
@@ -983,7 +983,7 @@ mod tests {
     #[test]
     fn test_should_attempt_source_fallback_policy() {
         let download = RegistryError::DownloadFailed {
-            url: "https://github.com/nearai/ironclaw/releases/latest/download/demo.wasm"
+            url: "https://github.com/JZKK720/ironclaw/releases/latest/download/demo.wasm"
                 .to_string(),
             reason: "http status 404".to_string(),
         };
@@ -1151,7 +1151,7 @@ mod tests {
     #[test]
     fn test_source_fallback_on_latest_url_mismatch() {
         let latest_mismatch = RegistryError::ChecksumMismatch {
-            url: "https://github.com/nearai/ironclaw/releases/latest/download/github-wasm32-wasip2.tar.gz".to_string(),
+            url: "https://github.com/JZKK720/ironclaw/releases/latest/download/github-wasm32-wasip2.tar.gz".to_string(),
             expected_sha256: "aaa".to_string(),
             actual_sha256: "bbb".to_string(),
         };
@@ -1161,7 +1161,7 @@ mod tests {
         );
 
         let pinned_mismatch = RegistryError::ChecksumMismatch {
-            url: "https://github.com/nearai/ironclaw/releases/download/v0.7.0/github-0.2.0-wasm32-wasip2.tar.gz".to_string(),
+            url: "https://github.com/JZKK720/ironclaw/releases/download/v0.7.0/github-0.2.0-wasm32-wasip2.tar.gz".to_string(),
             expected_sha256: "aaa".to_string(),
             actual_sha256: "bbb".to_string(),
         };

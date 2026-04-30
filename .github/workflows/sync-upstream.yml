@@ -1,4 +1,4 @@
-name: Sync Upstream and Rebuild
+name: Sync Upstream Main and Rebuild
 
 on:
   # Every Monday at 02:00 UTC — adjust cron if you want a different cadence.
@@ -22,7 +22,7 @@ env:
 
 jobs:
   sync-and-build:
-    name: Sync upstream/staging → main → GHCR
+    name: Sync upstream/main -> main -> GHCR
     runs-on: ubuntu-latest
 
     steps:
@@ -44,19 +44,19 @@ jobs:
       - name: Add upstream remote
         run: git remote add upstream https://github.com/nearai/ironclaw.git
 
-      - name: Fetch upstream/staging
-        run: git fetch upstream staging
+      - name: Fetch upstream/main
+        run: git fetch upstream main
 
-      - name: Count commits behind upstream/staging
+      - name: Count commits behind upstream/main
         id: diff
         run: |
-          BEHIND=$(git rev-list HEAD..upstream/staging --count)
+          BEHIND=$(git rev-list HEAD..upstream/main --count)
           echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
-          echo "This fork is $BEHIND commit(s) behind upstream/staging."
+          echo "This fork is $BEHIND commit(s) behind upstream/main."
 
       - name: Nothing to sync — exit early
         if: steps.diff.outputs.behind == '0'
-        run: echo "Already up to date with upstream/staging. Skipping build."
+        run: echo "Already up to date with upstream/main. Skipping build."
 
       # ── Auto-merge upstream into main ────────────────────────────────────
       - name: Attempt auto-merge
@@ -64,12 +64,12 @@ jobs:
         id: merge
         run: |
           DATE=$(date -u +%Y-%m-%d)
-          git merge upstream/staging --no-edit \
-            -m "chore: sync upstream/staging ${DATE} (${{ steps.diff.outputs.behind }} new commits)" \
+          git merge upstream/main --no-edit \
+            -m "chore: sync upstream/main ${DATE} (${{ steps.diff.outputs.behind }} new commits)" \
           || {
             git merge --abort
-            echo "::error::Auto-merge failed — upstream/staging has conflicts with fork/main."
-            echo "::error::To resolve: git fetch upstream && git merge upstream/staging, fix conflicts, push, then re-run this workflow."
+            echo "::error::Auto-merge failed — upstream/main has conflicts with fork/main."
+            echo "::error::To resolve: git fetch upstream && git merge upstream/main, fix conflicts, push, then re-run this workflow."
             exit 1
           }
 

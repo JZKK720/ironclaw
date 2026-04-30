@@ -42,6 +42,12 @@ on:
   push:
     tags:
       - 'ironclaw-v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing tag to publish from"
+        required: true
+        type: string
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -49,14 +55,15 @@ jobs:
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ !github.event.pull_request }}
+      tag: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      tag-flag: ${{ format('--tag={0}', github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name) }}
+      publishing: 'true'
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
           persist-credentials: false
           submodules: recursive
       - name: Install dist
@@ -69,21 +76,11 @@ jobs:
         with:
           name: cargo-dist-cache
           path: ~/.cargo/bin/dist
-      # sure would be cool if github gave us proper conditionals...
-      # so here's a doubly-nested ternary-via-truthiness to try to provide the best possible
-      # functionality based on whether this is a pull_request, and whether it's from a fork.
-      # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
-      # but also really annoying to build CI around when it needs secrets to work right.)
       - id: plan
         env:
-          IS_PUSH: ${{ !github.event.pull_request }}
-          REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         run: |
-          if [ "$IS_PUSH" = "true" ]; then
-            dist host --steps=create --tag="$REF_NAME" --output-format=json > plan-dist-manifest.json
-          else
-            dist plan --output-format=json > plan-dist-manifest.json
-          fi
+          dist host --steps=create --tag="$RELEASE_TAG" --output-format=json > plan-dist-manifest.json
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -126,6 +123,7 @@ jobs:
           git config --global core.longpaths true
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive
       - name: Install Rust non-interactively if not already installed
@@ -152,7 +150,7 @@ jobs:
         if: ${{ needs.plan.outputs.publishing == 'true' }}
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
         run: |
           CHECKSUMS="target/distrib/checksums.txt"
           if [ ! -f "$CHECKSUMS" ]; then
@@ -173,7 +171,7 @@ jobs:
               continue
             fi
             name=$(echo "$filename" | sed "s/^${kind}-//" | sed 's/-[0-9].*-wasm32-wasip2\.tar\.gz$//')
-            url="https://github.com/nearai/ironclaw/releases/download/${RELEASE_TAG}/${filename}"
+            url="https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/${filename}"
 
             manifest="registry/${kind}s/${name}.json"
             if [ -f "$manifest" ]; then
@@ -228,6 +226,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive
       - name: Install cached dist
@@ -276,6 +275,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive
       - name: Install Rust toolchain + wasm target
@@ -414,6 +414,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive
       - name: Install cached dist
@@ -461,22 +462,21 @@ jobs:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
           ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
           ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
-          RELEASE_COMMIT: "${{ github.sha }}"
           RELEASE_TAG: ${{ needs.plan.outputs.tag }}
         run: |
           # Write and read notes from a file to avoid quoting breaking things
           echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
 
           # shellcheck disable=SC2086  # PRERELEASE_FLAG is '--prerelease' or empty
-          gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          gh release create "$RELEASE_TAG" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
-  # Build and push Docker Hub images (:version, :latest, :sha-*) after the GitHub Release exists.
+  # Build and push GHCR images (:version, :latest, :sha-*) after the GitHub Release exists.
   docker-image:
     needs: host
     if: ${{ always() && needs.host.result == 'success' }}
     permissions:
       contents: read
-      packages: read
+      packages: write
       actions: write
     uses: ./.github/workflows/docker.yml
     with:
@@ -510,7 +510,7 @@ jobs:
       - name: Patch manifests with SHA256 and version-pinned URL
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
         run: |
           CHECKSUMS="target/wasm-bundles/checksums.txt"
           if [ ! -f "$CHECKSUMS" ]; then
@@ -531,7 +531,7 @@ jobs:
               continue
             fi
             name=$(echo "$filename" | sed "s/^${kind}-//" | sed 's/-[0-9].*-wasm32-wasip2\.tar\.gz$//')
-            url="https://github.com/nearai/ironclaw/releases/download/${RELEASE_TAG}/${filename}"
+            url="https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/${filename}"
 
             manifest="registry/${kind}s/${name}.json"
             if [ -f "$manifest" ]; then
@@ -574,5 +574,6 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive

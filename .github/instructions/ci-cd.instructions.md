@@ -21,7 +21,7 @@ Never attempt `cargo run` or `cargo test` directly on Windows hosts in this repo
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `docker-publish.yml` | Push to `main` | Build + push `ironclaw` and `ironclaw-worker` to GHCR |
-| `sync-upstream.yml` | Weekly Mon 02:00 UTC + manual | Auto-merge `upstream/staging` → `fork/main`; builds GHCR images inline |
+| `sync-upstream.yml` | Weekly Mon 02:00 UTC + manual | Auto-merge `upstream/main` → `fork/main`; builds GHCR images inline |
 | `test.yml` | Push, PR | Cargo unit tests |
 | `staging-ci.yml` | Push to `staging` | Full integration test suite |
 | `claude-review.yml` | PR | Automated code review |
@@ -33,7 +33,7 @@ ghcr.io/jzkk720/ironclaw:latest          # main runtime (target: runtime-staging
 ghcr.io/jzkk720/ironclaw-worker:latest   # sandbox worker
 ```
 
-Both tagged with `:latest` and `:<git-sha>` on every build.
+The moving auto-update tag is `:latest`; workflows may also publish immutable `:sha-*` tags for traceability.
 
 ## Dockerfile Build Targets
 

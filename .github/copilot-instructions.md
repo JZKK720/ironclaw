@@ -62,5 +62,7 @@ Detailed rules live in [.claude/rules/](../.claude/rules/) and are surfaced as V
 |--------|---------|
 | `/smoke-test-telegram` | Smoke-test the Telegram WASM channel end-to-end |
 | `/check-pr-ready` | Run the pre-commit discipline checklist before opening a PR |
-| `/sync-upstream` | Step-by-step guide to manually merge upstream/staging into fork/main |
+| `/sync-upstream` | Step-by-step guide to manually merge upstream/main into fork/main |
+| `/validate-ghcr-upgrade` | Audit whether upstream changes are safe to publish to fork GHCR and whether downstream update/install channels will actually pick them up |
+| `/validate-installer-release-channel` | Audit whether PowerShell, shell, MSI, cargo-dist releases, and embedded registry URLs actually resolve to the fork-owned release channel |
 | `/add-wasm-channel` | Scaffold a new WASM channel from scratch |

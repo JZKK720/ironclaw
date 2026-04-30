@@ -26,10 +26,12 @@ Start with these deeper docs as needed:
 - For release-alignment or clean-upgrade work, start by diffing the current worktree against `origin/main`. Reopen broader `upstream/main` or `upstream/staging` comparison only when validating divergence or planning a sync.
 - Prefer updating the fork baseline directly instead of creating new long-lived release-alignment branches.
 - Clean upgrades for deployed environments must prefer pullable GHCR images over local source builds. Treat local build-only compose or ad hoc `docker build` paths as dev or forensic flows unless the task explicitly requires rebuilding locally.
-- Published GHCR branch tags should mirror the fork branches that operators may follow for automated pull-based upgrades: `:main` for the promoted fork baseline, and `:staging` only when the fork actually carries a staging branch. Use release tags or digests when you need a pinned rollout instead of a moving branch tag.
+- Published GHCR runtime tags should expose a single moving `:latest` tag for automatic pull-based upgrades. Use release tags or digests when you need a pinned rollout instead of a moving tag.
 - When the running container and local git history disagree, verify which checkout, image tag, and image digest the container actually uses before changing code. Use `docker-compose.yml`, workflow files, and deployment docs/scripts as runtime source-of-truth references.
 - When adding or changing image publication, keep all runtime images that must interoperate version-matched, update compose/docs/scripts/workflows together, and prefer explicit version tags or digests over mutable `latest`-only rollout plans.
-- If operators want automatic refresh via Watchtower, Dockhand, or scheduled `docker compose pull`, keep the moving branch tags (`:main`, optional `:staging`) and the pinned release tags available simultaneously so both managed and controlled rollout styles remain possible.
+- Treat GHCR image publication and installer/release publication as separate delivery channels. Do not claim that a GHCR-safe runtime update will automatically reach PowerShell/shell/MSI installers unless the referenced release assets and docs also point at the intended fork-owned channel.
+- For major upstream jumps or “can we publish this image?” requests, compare the fork against both `upstream/staging` and `upstream/main`, then validate migrations, runtime/worker image tags, `docker-compose.yml`, Watchtower behavior, and installer/update surfaces together before confirming rollout safety.
+- If operators want automatic refresh via Watchtower, Dockhand, or scheduled `docker compose pull`, keep the moving `:latest` tag and the pinned release tags available simultaneously so both managed and controlled rollout styles remain possible.
 - Record which upstream commits were cherry-picked, skipped, or deferred when staging diverges from main.
 
 ## Architecture Mental Model
