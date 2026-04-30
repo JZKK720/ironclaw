@@ -21,7 +21,7 @@ version: "3.9"
 
 services:
   ironclaw:
-    image: nearai/ironclaw:latest
+    image: ghcr.io/jzkk720/ironclaw:latest
     container_name: ironclaw
     restart: unless-stopped
     env_file:
@@ -132,7 +132,7 @@ EMBEDDING_MODEL=text-embedding-3-small
 
 # ─── Docker Sandbox ───────────────────────────────────────────────────────────
 SANDBOX_ENABLED=true
-SANDBOX_IMAGE=ironclaw-worker:latest
+SANDBOX_IMAGE=ghcr.io/jzkk720/ironclaw-worker:latest
 SANDBOX_MEMORY_LIMIT_MB=512
 SANDBOX_TIMEOUT_SECS=1800
 SANDBOX_CPU_LIMIT=1.0
@@ -142,7 +142,16 @@ SANDBOX_DEFAULT_POLICY=workspace_write
 
 # ─── Skills ───────────────────────────────────────────────────────────────────
 SKILLS_ENABLED=true
-SKILLS_CATALOG_URL=https://clawhub.dev
+# Leave CLAWHUB_REGISTRY unset for the default hosted ClawHub backend.
+# Only set this when pointing at a compatible private registry.
+# CLAWHUB_REGISTRY=https://wry-manatee-359.convex.site
+
+# ─── Optional Outbound Proxy ──────────────────────────────────────────────────
+# If IronClaw runs behind an HTTP(S) proxy, bypass the hosted ClawHub registry
+# hosts or skills search/install can fail with "Registry unreachable".
+# HTTP_PROXY=http://host.docker.internal:7897
+# HTTPS_PROXY=http://host.docker.internal:7897
+# NO_PROXY=host.docker.internal,localhost,127.0.0.1,postgres,wry-manatee-359.convex.site,clawhub.ai
 
 # ─── Routines ─────────────────────────────────────────────────────────────────
 ROUTINES_ENABLED=true
@@ -212,6 +221,8 @@ docker compose up -d
 ```
 
 > If `docker compose pull` fails against GHCR, fix Docker daemon DNS first. The daemon must be able to resolve and reach both `ghcr.io` and `pkg-containers.githubusercontent.com` because GHCR serves manifests and blobs from different hosts.
+
+> If you set `HTTP_PROXY` or `HTTPS_PROXY` for the IronClaw container, add `wry-manatee-359.convex.site` and `clawhub.ai` to `NO_PROXY`. Otherwise server-side ClawHub skills search and install requests can fail with `Registry unreachable` even when the app image is current.
 
 ---
 

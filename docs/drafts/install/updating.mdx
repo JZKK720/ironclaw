@@ -56,6 +56,8 @@ ironclaw --version
     ```
 
     > If the pull fails, verify the Docker daemon can resolve both `ghcr.io` and `pkg-containers.githubusercontent.com`. GHCR image manifests come from `ghcr.io`, but layer blobs are downloaded from `pkg-containers.githubusercontent.com`.
+
+    > If the app container uses `HTTP_PROXY` or `HTTPS_PROXY`, add `wry-manatee-359.convex.site` and `clawhub.ai` to `NO_PROXY` before restarting. Otherwise ClawHub skills search/install can still fail with `Registry unreachable` after the image update lands.
   </Tab>
 
   <Tab title="From Source">

@@ -80,6 +80,13 @@ services:
       - HTTP_HOST=0.0.0.0
       - HTTP_PORT=8080
 
+      # Optional: outbound HTTP(S) proxy
+      # If you enable a proxy, keep the hosted ClawHub registry hosts out of it
+      # or skills search/install can fail with "Registry unreachable".
+      # - HTTP_PROXY=http://host.docker.internal:7897
+      # - HTTPS_PROXY=http://host.docker.internal:7897
+      # - NO_PROXY=host.docker.internal,localhost,127.0.0.1,wry-manatee-359.convex.site,clawhub.ai
+
 # Optional: PostgreSQL instead of libSQL
 #  postgres:
 #    image: pgvector/pgvector:pg15
@@ -213,6 +220,8 @@ docker compose up -d
 ```
 
 > If `docker pull` or `docker compose pull` fails against GHCR, make sure the Docker daemon can resolve and reach both `ghcr.io` and `pkg-containers.githubusercontent.com`. GHCR serves manifests from `ghcr.io`, but layer blobs are downloaded from `pkg-containers.githubusercontent.com`.
+
+> If the app runs behind an outbound HTTP(S) proxy, add `wry-manatee-359.convex.site` and `clawhub.ai` to `NO_PROXY`. Otherwise ClawHub skills search/install can fail from inside the container even when the image itself is up to date.
 
 ## Troubleshooting
 
