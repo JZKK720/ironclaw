@@ -16,6 +16,14 @@ Start with these deeper docs as needed:
 - `src/NETWORK_SECURITY.md`
 - `tests/e2e/CLAUDE.md`
 
+## Build and Sandbox Shortcuts
+
+- On Windows, prefer Docker validation over host Rust execution. Use `docker compose up -d --build ironclaw` for local rebuilds, and use `docker compose pull` plus `docker compose up -d --no-build postgres ironclaw` when the task is to validate pulled GHCR images instead of rebuilding.
+- Do not conflate the two Docker sandbox paths:
+	- `SANDBOX_IMAGE` / `ghcr.io/jzkk720/ironclaw-worker:latest` is still required for orchestrated job containers, the hidden `ironclaw worker` CLI path, and Claude Code or ACP container jobs. The `ironclaw-worker` compose service is build-only and normally stays stopped.
+	- Engine v2 `/project/` sandboxing is separate and uses [crates/Dockerfile.sandbox](crates/Dockerfile.sandbox) with `IRONCLAW_SANDBOX_IMAGE`; read [docs/plans/2026-04-10-engine-v2-sandbox.md](docs/plans/2026-04-10-engine-v2-sandbox.md) before changing that flow.
+- If a task proposes removing worker or sandbox Docker assets, audit `src/config/sandbox.rs`, `src/orchestrator/job_manager.rs`, `src/cli/mod.rs`, and `src/bridge/sandbox/` first.
+
 ## Release Alignment Workflow
 
 - `origin/main` is the promoted fork runtime baseline. Treat a checked-out `master` branch as a local working branch, not the deployment baseline, unless the user explicitly says otherwise.

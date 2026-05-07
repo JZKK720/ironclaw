@@ -50,6 +50,7 @@ trace_*.json
 .claude/settings.local.json
 .worktrees/
 .ironclaw/
+extensions/ironclaw-home/
 
 # Python cache
 __pycache__/

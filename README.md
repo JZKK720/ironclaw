@@ -146,6 +146,8 @@ brew install ironclaw
    ```
    Open `.env` and set at minimum:
    ```env
+  DATABASE_BACKEND=postgres
+
    # Generate with: openssl rand -hex 32
    GATEWAY_AUTH_TOKEN=<your-random-hex-token>
    SECRETS_MASTER_KEY=<your-random-hex-token>
@@ -154,6 +156,9 @@ brew install ironclaw
    LLM_BACKEND=anthropic
    ANTHROPIC_API_KEY=sk-ant-...
    ```
+
+  Docker/local state note:
+  The repo compose file keeps state in two places. `IRONCLAW_HOME_DIR` controls the bind-mounted `~/.ironclaw`-style home directory (config, channels, legacy libsql files), while the external Docker volume `ironclaw-pgdata` stores PostgreSQL history. Create that volume once with `docker volume create ironclaw-pgdata`. Keep `DATABASE_BACKEND=postgres` set when this compose stack should stay on PostgreSQL; if it is unset and the mounted home contains `ironclaw.db`, IronClaw can auto-detect libsql instead.
 
 3. **Authenticate with GHCR** (one-time, required for Watchtower auto-updates):
    ```bash
@@ -177,6 +182,13 @@ brew install ironclaw
    ```bash
    docker compose logs -f ironclaw
    ```
+
+6. **Upgrade later without rebuilding locally:**
+  ```bash
+  docker compose pull ironclaw ironclaw-worker
+  docker compose up -d --no-build postgres ironclaw
+  ```
+  This keeps the named Postgres volume and the mounted `IRONCLAW_HOME_DIR` intact while refreshing the runtime images.
 
 > **Windows note:** Windows Smart App Control blocks freshly compiled Rust binaries. Docker (Docker Desktop, or Docker Engine inside WSL2) is the recommended install path on Windows — no Rust toolchain needed.
 

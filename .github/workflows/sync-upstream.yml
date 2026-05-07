@@ -18,7 +18,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_OWNER: jzkk720
 
 jobs:
   sync-and-build:
@@ -91,6 +90,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Normalize registry owner
+        if: steps.diff.outputs.behind != '0'
+        id: owner
+        shell: bash
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve merged source SHA
+        if: steps.diff.outputs.behind != '0'
+        id: source_sha
+        shell: bash
+        run: echo "value=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push ironclaw
         if: steps.diff.outputs.behind != '0'
         uses: docker/build-push-action@v6
@@ -99,8 +110,8 @@ jobs:
           target: runtime-staging
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/ironclaw:latest
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/ironclaw:sha-${{ steps.source_sha.outputs.value }}
           cache-from: type=gha,scope=ironclaw-main
           cache-to: type=gha,mode=max,scope=ironclaw-main
 
@@ -112,8 +123,8 @@ jobs:
           file: Dockerfile.worker
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw-worker:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ironclaw-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/ironclaw-worker:latest
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/ironclaw-worker:sha-${{ steps.source_sha.outputs.value }}
           cache-from: type=gha,scope=ironclaw-worker
           cache-to: type=gha,mode=max,scope=ironclaw-worker
 
@@ -123,6 +134,6 @@ jobs:
           echo "### Sync complete" >> "$GITHUB_STEP_SUMMARY"
           echo "Merged ${{ steps.diff.outputs.behind }} upstream commit(s)." >> "$GITHUB_STEP_SUMMARY"
           echo "Images pushed to GHCR:" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`ghcr.io/${{ env.IMAGE_OWNER }}/ironclaw:latest\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`ghcr.io/${{ env.IMAGE_OWNER }}/ironclaw-worker:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ghcr.io/${{ steps.owner.outputs.value }}/ironclaw:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ghcr.io/${{ steps.owner.outputs.value }}/ironclaw-worker:latest\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Watchtower will pick up the new image within the next poll interval." >> "$GITHUB_STEP_SUMMARY"

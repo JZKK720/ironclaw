@@ -17,6 +17,12 @@ RUST_LOG=ironclaw=debug cargo run                 # run with logging
 docker compose up -d --build ironclaw
 ```
 
+## Docker Build Modes
+
+- For deploy-like validation, stay in pull mode: `docker compose pull` and then `docker compose up -d --no-build postgres ironclaw`.
+- `ironclaw-worker` is still a required runtime image for orchestrated job containers, but its compose service is build-only; do not start it with `docker compose up` unless you are explicitly testing that image build.
+- Engine v2 `/project/` sandboxing is a different container path driven by [crates/Dockerfile.sandbox](../crates/Dockerfile.sandbox) and [docs/plans/2026-04-10-engine-v2-sandbox.md](../docs/plans/2026-04-10-engine-v2-sandbox.md). Do not remove `Dockerfile.worker` or the `SANDBOX_IMAGE` path without first auditing [src/config/sandbox.rs](../src/config/sandbox.rs), [src/orchestrator/job_manager.rs](../src/orchestrator/job_manager.rs), [src/cli/mod.rs](../src/cli/mod.rs), and [src/bridge/sandbox/](../src/bridge/sandbox/).
+
 ## Non-Negotiable Invariants
 
 | Rule | Scope |

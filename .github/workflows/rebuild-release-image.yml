@@ -14,7 +14,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/jzkk720/ironclaw
 
 jobs:
   build:
@@ -71,6 +70,11 @@ jobs:
         run: |
           echo "sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Normalize registry owner
+        id: owner
+        shell: bash
+        run: echo "image=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/ironclaw" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -96,7 +100,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+          tags: ${{ steps.owner.outputs.image }}:${{ inputs.tag }}
           target: runtime
           platforms: linux/amd64
           cache-from: type=gha
@@ -108,7 +112,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+          tags: ${{ steps.owner.outputs.image }}:${{ inputs.tag }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -120,6 +124,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           HAS_RUNTIME_STAGE: ${{ steps.target.outputs.has_runtime_stage }}
           INPUT_TAG: ${{ inputs.tag }}
+          IMAGE_NAME: ${{ steps.owner.outputs.image }}
         run: |
           {
             echo "## Rebuilt Docker Image"

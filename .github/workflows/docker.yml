@@ -30,8 +30,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/jzkk720/ironclaw
-  WORKER_IMAGE_NAME: ghcr.io/jzkk720/ironclaw-worker
 
 jobs:
   build:
@@ -54,6 +52,11 @@ jobs:
           echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
           echo "Source commit: ${SOURCE_SHA}"
 
+      - name: Normalize registry owner
+        id: owner
+        shell: bash
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       - name: Extract version from Cargo.toml
         id: version
         run: |
@@ -72,6 +75,8 @@ jobs:
           IS_RELEASE_BUILD: ${{ inputs.release && 'true' || 'false' }}
           INPUT_TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ steps.source_sha.outputs.sha }}
+          IMAGE_NAME: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/ironclaw
+          WORKER_IMAGE_NAME: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/ironclaw-worker
         run: |
           if [[ -n "${INPUT_TAG}" && ! "${INPUT_TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
             echo "::error::Input tag '${INPUT_TAG}' does not match Docker tag grammar"

@@ -1,6 +1,11 @@
-name: ${COMPOSE_PROJECT_NAME:-ironclaw-v0-26}
+name: ${COMPOSE_PROJECT_NAME:-ironclaw}
 
 # Local development only — do NOT use these credentials in production.
+# Local state lives in two places:
+#   1. IRONCLAW_HOME_DIR bind mount for ~/.ironclaw-style files (config, channels, legacy libsql snapshots)
+#   2. The stable named Postgres volume below for recent conversation/settings history
+# Keep DATABASE_BACKEND=postgres in .env when this stack should use Postgres; if the backend is
+# unset and IRONCLAW_HOME_DIR contains ironclaw.db, bootstrap auto-detect can fall back to libsql.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -11,7 +16,7 @@ services:
       POSTGRES_USER: ironclaw
       POSTGRES_PASSWORD: ironclaw  # dev-only, change for any non-local deployment
     volumes:
-      - pgdata_v025:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ironclaw"]
       interval: 5s
@@ -41,8 +46,11 @@ services:
     env_file:
       - .env
     environment:
+      # Pin the compose runtime to pgvector/Postgres even if the mounted home contains legacy libsql artifacts.
+      DATABASE_BACKEND: postgres
       DATABASE_URL: postgres://ironclaw:ironclaw@postgres/ironclaw
       GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 3000
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       ONBOARD_COMPLETED: "true"
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:latest}
@@ -58,7 +66,8 @@ services:
       - "127.0.0.1:3231:3000"
       - "127.0.0.1:8281:8080"
     volumes:
-      - ./extensions/ironclaw-home:/home/ironclaw/.ironclaw
+      # Reuse an existing ~/.ironclaw by setting IRONCLAW_HOME_DIR in .env; otherwise use repo-local state.
+      - ${IRONCLAW_HOME_DIR:-./extensions/ironclaw-home}:/home/ironclaw/.ironclaw
       # Mount the host Docker socket so ironclaw can spawn sandbox sub-worker containers.
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
@@ -100,4 +109,7 @@ services:
       WATCHTOWER_DEBUG: "false"
 
 volumes:
-  pgdata_v025:
+  pgdata:
+    # Stable Postgres volume name so local upgrades do not drift across versioned volume aliases.
+    external: true
+    name: ironclaw-pgdata
