@@ -17,6 +17,7 @@ permissions:
   packages: write   # push Docker images to GHCR
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: ghcr.io
 
 jobs:

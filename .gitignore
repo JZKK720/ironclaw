@@ -39,6 +39,7 @@ bench-results/
 # Canary / E2E run outputs (per-run logs, screenshots, trace artifacts —
 # CI uploads these via actions/upload-artifact; never commit local copies)
 artifacts/
+backups/
 
 # WASM build artifacts (loaded from disk, not bundled)
 *.wasm
