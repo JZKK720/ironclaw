@@ -22,6 +22,7 @@ docker compose up -d --build ironclaw
 - For deploy-like validation, stay in pull mode: `docker compose pull` and then `docker compose up -d --no-build postgres ironclaw`.
 - `ironclaw-worker` is still a required runtime image for orchestrated job containers, but its compose service is build-only; do not start it with `docker compose up` unless you are explicitly testing that image build.
 - Engine v2 `/project/` sandboxing is a different container path driven by [crates/Dockerfile.sandbox](../crates/Dockerfile.sandbox) and [docs/plans/2026-04-10-engine-v2-sandbox.md](../docs/plans/2026-04-10-engine-v2-sandbox.md). Do not remove `Dockerfile.worker` or the `SANDBOX_IMAGE` path without first auditing [src/config/sandbox.rs](../src/config/sandbox.rs), [src/orchestrator/job_manager.rs](../src/orchestrator/job_manager.rs), [src/cli/mod.rs](../src/cli/mod.rs), and [src/bridge/sandbox/](../src/bridge/sandbox/).
+- For pull-based local rollouts, treat `.env`, `IRONCLAW_HOME_DIR`, and the external `ironclaw-pgdata` volume as operator-owned state. Back them up before `docker compose pull` or container recreation.
 
 ## Non-Negotiable Invariants
 
@@ -60,6 +61,7 @@ Detailed rules live in [.claude/rules/](../.claude/rules/) and are surfaced as V
 - [tools-and-dispatch.instructions.md](instructions/tools-and-dispatch.instructions.md) → `src/tools/**`, `src/channels/**`, `src/cli/**`
 - [safety-and-sandbox.instructions.md](instructions/safety-and-sandbox.instructions.md) → `src/safety/**`, `src/sandbox/**`, `src/secrets/**`
 - [ci-cd.instructions.md](instructions/ci-cd.instructions.md) → `.github/workflows/**`, `Dockerfile*`, `docker-compose.yml`
+- [local-ops.instructions.md](instructions/local-ops.instructions.md) → `docker-compose.yml`, `.env`, `README.md`, `deploy/**`, `docs/drafts/install/**`, `docs/drafts/platforms/**`
 - [telegram-channel.instructions.md](instructions/telegram-channel.instructions.md) → `channels-src/telegram/**`
 
 ## Useful Prompts
@@ -71,4 +73,5 @@ Detailed rules live in [.claude/rules/](../.claude/rules/) and are surfaced as V
 | `/sync-upstream` | Step-by-step guide to manually merge upstream/main into fork/main |
 | `/validate-ghcr-upgrade` | Audit whether upstream changes are safe to publish to fork GHCR and whether downstream update/install channels will actually pick them up |
 | `/validate-installer-release-channel` | Audit whether PowerShell, shell, MSI, cargo-dist releases, and embedded registry URLs actually resolve to the fork-owned release channel |
+| `/update-local-docker-runtime` | Backup-first guide to pull new GHCR images into the local Docker stack without losing `.env`, bind-mounted state, or the external Postgres volume |
 | `/add-wasm-channel` | Scaffold a new WASM channel from scratch |
