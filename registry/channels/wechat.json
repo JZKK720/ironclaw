@@ -27,5 +27,11 @@
   },
   "tags": [
     "messaging"
-  ]
+  ],
+  "artifacts": {
+    "wasm32-wasip2": {
+      "sha256": "66aca27edf447927a1d4b8104949397cb1ba6a6c85f618132d2055a42bb30cbd",
+      "url": "https://github.com/JZKK720/ironclaw/releases/download/ironclaw-v0.28.0/channel-wechat-0.1.0-wasm32-wasip2.tar.gz"
+    }
+  }
 }
