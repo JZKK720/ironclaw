@@ -25,7 +25,9 @@ git log --oneline upstream/main..origin/main
 git log --oneline origin/main..upstream/main
 ```
 
-### 2. Pull Latest Container Images
+### 2. Pull Latest Container Images (Default: `:latest`)
+
+Your `docker-compose.yml` uses `:latest` tag by default, which means `docker compose pull` automatically fetches the newest image whenever you run it:
 
 ```bash
 # Get the latest from GHCR (no local build needed)
@@ -38,13 +40,20 @@ docker compose up -d
 docker exec ironclaw ironclaw --version
 ```
 
-### 3. Update to Specific Version
+Version updates happen automatically — as versions change (0.28.0 → 0.29.0 → etc.), the next `pull` gets the new image without any tag changes needed.
+
+### 3. Pin to Specific Version (Optional)
+
+If you need a specific version instead of `:latest`:
 
 ```bash
 # Pin to v0.28.0 (for example)
 export IRONCLAW_TAG=0.28.0
 docker compose pull
 docker compose up -d
+
+# Or edit docker-compose.yml directly and change:
+# image: ghcr.io/jzkk720/ironclaw:0.28.0
 ```
 
 ### 4. Merge Upstream Changes
