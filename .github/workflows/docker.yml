@@ -1,6 +1,13 @@
 name: Docker Image
 
 on:
+  push:
+    branches:
+      - main
+      - staging
+    paths:
+      - 'Cargo.toml'
+      - '.github/workflows/docker.yml'
   # Called by release.yml or other workflows
   workflow_call:
     inputs:
