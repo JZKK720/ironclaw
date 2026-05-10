@@ -332,13 +332,112 @@ Connect to external Model Context Protocol servers for additional capabilities. 
 
 ## Release Alignment Workflow
 
-- `origin/main` is the promoted runtime baseline and the only push target. `upstream` points at `nearai/ironclaw` and is fetch-only; never plan or execute pushes to `upstream`.
-- If local git config exposes a push URL for `upstream`, treat it as accidental capability and do not use it. Keep all publishing on `origin/main`.
-- Before proposing update work, compare `origin/main` with `upstream/main` and `upstream/staging`, then selectively pull in missing upstream commits.
-- For fresh-install or rebuild work, treat `upstream/staging` as the clean baseline candidate.
-- Assume historical Docker/setup/polling/cutover patches are disposable until proven necessary on the fresh baseline. Prefer replaying the smallest verified subset over preserving legacy compatibility changes.
-- When the running container and local git history disagree, verify which checkout and commit the container actually mounts before changing code. Use container labels, mounts, `docker-compose.yml`, `docker-compose.build.yml`, `docker-compose.override.yml`, `scripts/bootstrap.sh`, and `scripts/Bootstrap.ps1` as the runtime source-of-truth references.
-- Record which upstream commits were cherry-picked, skipped, or deferred when staging diverges from main, and which fork-local commits were intentionally kept or dropped during rebuild work.
+### Git Remotes and Fork Strategy
+
+- `origin` = your fork (`github.com/JZKK720/ironclaw`) — this is the promoted runtime baseline and the only push target.
+- `upstream` = main repository (`github.com/nearai/ironclaw`) — fetch-only, never push to upstream.
+- If local git config exposes a push URL for `upstream`, treat it as accidental and do not use it. Keep all publishing on `origin/main`.
+
+### Syncing with Upstream
+
+- Before proposing update work, fetch both remotes and compare branches: `git fetch upstream` and `git fetch origin`.
+- Compare `origin/main` with `upstream/main` and `upstream/staging` to identify missing commits: `git log origin/main..upstream/main` and `git log origin/main..upstream/staging`.
+- Selectively pull in upstream commits that are relevant to your fork's goals. Use cherry-pick or rebase to maintain clean history.
+- For fresh-install or rebuild work, `upstream/staging` is the clean baseline candidate to evaluate before merging.
+- Assume historical patches (Docker/setup/polling/cutover workarounds) are disposable until proven necessary on the fresh baseline. Prefer replaying only the smallest verified subset.
+- Record which upstream commits were cherry-picked, skipped, or deferred when fork diverges from main, and which fork-local commits were intentionally kept or dropped.
+
+### Runtime Verification
+
+- When the running container and local git history disagree, verify which checkout/commit the container actually mounts.
+- Use container labels, mounts, `docker-compose.yml`, `docker-compose.override.yml`, `scripts/bootstrap.sh`, and `scripts/Bootstrap.ps1` as the runtime source-of-truth.
+- Compare the running commit with `git log` to detect drift between deployed code and local working tree.
+
+## Container Image Management
+
+### GHCR Publishing Strategy
+
+Your fork publishes container images to GitHub Container Registry (GHCR) for both the main application and worker:
+
+| Image | Registry | Usage |
+|-------|----------|-------|
+| `ghcr.io/jzkk720/ironclaw` | Main application | Web gateway, agent loop, CLI |
+| `ghcr.io/jzkk720/ironclaw-worker` | Sandbox worker | Spawned by orchestrator for sandboxed jobs |
+
+Images are published automatically by `.github/workflows/docker.yml` on:
+- **Release** (workflow_call from `release.yml`): tags as `:version`, `:latest`, `:sha-<7-char-commit>`
+- **Scheduled staging** (hourly cron): tags as `:staging`, `:sha-<7-char-commit>`
+- **Manual dispatch**: same as release, with optional tag override
+
+### Version and Tag Strategy
+
+1. **Version source**: Read from `Cargo.toml` at build time (line `version = "X.Y.Z"`)
+2. **Tag mapping**:
+   - `:latest` — most recent release (e.g., `v0.28.0`)
+   - `:staging` — hourly builds from `staging` branch for testing
+   - `:sha-abc1234` — specific commit (all builds)
+   - `:version` — explicit version tag (releases only)
+
+3. **Bumping versions**:
+   - Update `Cargo.toml` version field in your fork
+   - Commit with message like `chore(fork): bump to v0.28.0 ...`
+   - Push to `origin/main`
+   - CI automatically detects new version and publishes container with updated tags
+
+### Local Runtime (No Local Builds)
+
+Your local `docker-compose.yml` is configured to **pull only** from GHCR, not build locally:
+
+```yaml
+ironclaw:
+  image: ghcr.io/jzkk720/ironclaw:latest
+  # No 'build:' section — images come from GHCR
+  
+ironclaw-worker:
+  image: ghcr.io/jzkk720/ironclaw-worker:latest
+  # Also pulled, not built
+```
+
+**Benefits**:
+- No local Rust/Cargo dependency needed to run ironclaw
+- All runtime code stays in sync with GHCR
+- Faster startup (pull cached layers instead of build)
+- Consistent with fork's published baseline
+
+**To stay updated**:
+```bash
+docker compose pull                    # fetch latest images
+docker compose up -d                   # restart with new images
+```
+
+**To pin to a specific version** (e.g., v0.28.0):
+```bash
+# Edit docker-compose.yml or set env var:
+export IRONCLAW_TAG=0.28.0
+docker compose pull
+docker compose up -d
+```
+
+### Local Environment and Data Preservation
+
+During container updates:
+- **`.env` file**: Preserved, contains `DATABASE_URL`, `LLM_BACKEND`, secrets, etc.
+- **PostgreSQL volume** (`pgdata_v025`): Persists across `docker compose up/down`
+- **Extensions** (`./extensions/ironclaw-home/`): Kept on host, mounted into container
+- **Local settings** (`~/.ironclaw/`): Available inside container via bind mount
+
+### Building Staging vs. Release
+
+| Scenario | Branch | Trigger | Image Tags | Cadence |
+|----------|--------|---------|-----------|---------|
+| **Staging** | `staging` | Scheduled cron | `:staging`, `:sha-abc1234` | Hourly |
+| **Release** | `main` | Manual dispatch or `release.yml` | `:latest`, `:version`, `:sha-abc1234` | On-demand |
+
+To test a new feature before release:
+1. Commit to `staging` branch in your fork
+2. CI publishes `:staging` tag within 1 hour
+3. Pull and test: `docker compose pull && docker compose up -d`
+4. If ready, merge `staging` → `main` and trigger release
 
 ## Risk and Change Discipline
 
