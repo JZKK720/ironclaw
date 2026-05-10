@@ -22,8 +22,8 @@ on:
     - cron: '0 * * * *'
 
 env:
-  IMAGE_NAME: nearaidev/ironclaw
-  WORKER_IMAGE_NAME: nearaidev/ironclaw-worker
+  IMAGE_NAME: ghcr.io/jzkk720/ironclaw
+  WORKER_IMAGE_NAME: ghcr.io/jzkk720/ironclaw-worker
 
 jobs:
   build:
@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: read
+      packages: write
       actions: write
     steps:
       - name: Checkout
@@ -100,11 +100,12 @@ jobs:
             echo "target=runtime" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
-          username: ${{ vars.DOCKER_REGISTRY_USER }}
-          password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check if current staging commit is already built
         id: check
@@ -166,36 +167,6 @@ jobs:
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker
 
-      - name: Create releases-manager app token
-        id: app-token
-        if: steps.check.outputs.skip != 'true'
-        continue-on-error: true
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        with:
-          app-id: ${{ secrets.GH_RELEASES_MANAGER_APP_ID }}
-          private-key: ${{ secrets.GH_RELEASES_MANAGER_APP_PRIVATE_KEY }}
-          owner: nearai
-          repositories: ironclaw-dind
-
-      - name: Trigger ironclaw-dind Build & Push
-        if: steps.app-token.outcome == 'success' && steps.check.outputs.skip != 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          if [[ "${EVENT_NAME}" == "workflow_call" && -n "${VERSION}" ]]; then
-            gh api repos/nearai/ironclaw-dind/dispatches \
-              --method POST \
-              -f event_type="ironclaw_image_published" \
-              -f client_payload[version]="${VERSION}"
-          elif [[ "${EVENT_NAME}" == "schedule" ]] || [[ "${INPUT_TAG}" == "staging" ]]; then
-            gh api repos/nearai/ironclaw-dind/dispatches \
-              --method POST \
-              -f event_type="ironclaw_image_published"
-          fi
 
       - name: Summary
         if: steps.check.outputs.skip != 'true'

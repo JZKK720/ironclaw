@@ -17,10 +17,7 @@ services:
       retries: 5
 
   ironclaw:
-    build:
-      context: .
-      target: runtime-staging
-    image: ironclaw-ironclaw
+    image: ghcr.io/jzkk720/ironclaw:latest
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,8 +36,8 @@ services:
     user: "0:0"
     command: ["run"]
     ports:
-      - "127.0.0.1:3231:3000"
-      - "127.0.0.1:8281:8080"
+      - "127.0.0.1:${GATEWAY_PORT:-3231}:${GATEWAY_PORT:-3231}"
+      - "127.0.0.1:${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
     volumes:
       # Mount the host Docker socket so ironclaw can spawn sandbox sub-worker containers.
       - /var/run/docker.sock:/var/run/docker.sock
@@ -49,10 +46,7 @@ services:
   # The ironclaw orchestrator spawns containers from this image on demand via the Docker API;
   # this service is never started by `docker compose up`.
   ironclaw-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    image: ironclaw-worker:latest
+    image: ghcr.io/jzkk720/ironclaw-worker:latest
     profiles:
       - worker
 

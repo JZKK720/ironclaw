@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0](https://github.com/JZKK720/ironclaw/compare/ironclaw-v0.25.0...ironclaw-v0.28.0) - 2026-05-07
+
+### Changed
+
+- Fork baseline updated to upstream/main (v0.25.0) with local patches preserved
+- All deployment images now pull exclusively from `ghcr.io/JZKK720/ironclaw`
+- CI workflows publish to GitHub Container Registry instead of Docker Hub
+
+### Fixed
+
+- *(sandbox)* mount Docker socket and filter sandbox-unavailable warnings for WASM channels
+- *(portability)* Windows behavior and Telegram cleanup improvements
+
 ### Changed
 
 - *(web)* gateway onboarding/auth SSE now uses the unified `onboarding_state` event; external SSE clients should migrate from the older auth/pairing event names. Legacy WebSocket `auth_token` and `auth_cancel` client messages remain accepted during the temporary web v1-auth compatibility window.
