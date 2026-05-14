@@ -1,6 +1,6 @@
 //! Model discovery and fetching for multiple LLM providers.
 
-use crate::llm::LlmError;
+use crate::error::LlmError;
 
 pub(crate) async fn list_anthropic_models(api_key: &str) -> Result<Vec<String>, LlmError> {
     let client = reqwest::Client::new();
