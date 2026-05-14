@@ -151,7 +151,11 @@ fn looks_like_filesystem_path(path: &str) -> bool {
         return false;
     }
 
-    if Path::new(path).is_absolute() || path.starts_with("~/") {
+    if path.starts_with("/memories/") {
+        return false;
+    }
+
+    if path.starts_with('/') || Path::new(path).is_absolute() || path.starts_with("~/") {
         return true;
     }
 
@@ -1214,6 +1218,7 @@ mod tests {
         assert!(!looks_like_filesystem_path("MEMORY.md"));
         assert!(!looks_like_filesystem_path("daily/2026-03-11.md"));
         assert!(!looks_like_filesystem_path("projects/alpha/notes.md"));
+        assert!(!looks_like_filesystem_path("/memories/session/notes.md"));
     }
 
     // ── Path normalization & protected-path guard ─────────────

@@ -368,8 +368,11 @@ mod tests {
     #[test]
     fn logs_dir_under_ironclaw() {
         let path = ironclaw_logs_dir();
-        let s = path.to_string_lossy();
-        assert!(s.ends_with(".ironclaw/logs"), "unexpected path: {s}");
+        assert!(
+            path.ends_with(std::path::Path::new(".ironclaw").join("logs")),
+            "unexpected path: {}",
+            path.display()
+        );
     }
 
     #[test]

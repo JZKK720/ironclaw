@@ -1,0 +1,26 @@
+# Local persistence override for the Windows upgrade path.
+# Keep the existing host ports from docker-compose.yml/.env and preserve
+# the on-disk IronClaw home directory across container recreates.
+
+services:
+  ironclaw:
+    image: ghcr.io/jzkk720/ironclaw:latest
+    container_name: ironclaw
+    restart: unless-stopped
+    volumes:
+      # Keep the existing IronClaw home directory and secrets/data on disk.
+      - ./extensions/ironclaw-home:/home/ironclaw/.ironclaw
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ironclaw-network
+
+  postgres:
+    # Use existing postgres service from docker-compose.yml
+    networks:
+      - ironclaw-network
+
+networks:
+  ironclaw-network:
+    driver: bridge

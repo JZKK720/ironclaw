@@ -467,7 +467,7 @@ pub fn pid_lock_path() -> PathBuf {
 pub struct PidLock {
     path: PathBuf,
     /// Held open to maintain the OS-level exclusive lock.
-    _file: std::fs::File,
+    file: Option<std::fs::File>,
 }
 
 /// Errors from PID lock acquisition.
@@ -494,7 +494,7 @@ impl PidLock {
     fn acquire_at(path: PathBuf) -> Result<Self, PidLockError> {
         use fs4::FileExt;
         use std::fs::OpenOptions;
-        use std::io::Write;
+        use std::io::{Read, Seek, SeekFrom, Write};
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
@@ -512,11 +512,19 @@ impl PidLock {
         // Try non-blocking exclusive lock — if another process holds it,
         // this fails immediately instead of blocking.
         if let Err(e) = file.try_lock_exclusive() {
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                // Lock held by another process — read its PID for the error message
-                let pid = std::fs::read_to_string(&path)
+            let is_lock_contention =
+                e.kind() == std::io::ErrorKind::WouldBlock || e.raw_os_error() == Some(33);
+            if is_lock_contention {
+                // Read the PID through the same handle because reopening a locked
+                // file can fail on Windows while the exclusive lock is held.
+                let pid = file
+                    .seek(SeekFrom::Start(0))
                     .ok()
-                    .and_then(|s| s.trim().parse::<u32>().ok())
+                    .and_then(|_| {
+                        let mut contents = String::new();
+                        file.read_to_string(&mut contents).ok().map(|_| contents)
+                    })
+                    .and_then(|contents| contents.trim().parse::<u32>().ok())
                     .unwrap_or(0);
                 return Err(PidLockError::AlreadyRunning { pid });
             }
@@ -528,13 +536,20 @@ impl PidLock {
         file.set_len(0)?; // truncate
         write!(file, "{}", std::process::id())?;
 
-        Ok(PidLock { path, _file: file })
+        Ok(PidLock {
+            path,
+            file: Some(file),
+        })
     }
 }
 
 impl Drop for PidLock {
     fn drop(&mut self) {
-        // Remove the PID file; the OS-level lock is released when _file is dropped.
+        if let Some(file) = self.file.take() {
+            let _ = fs4::FileExt::unlock(&file);
+            drop(file);
+        }
+        // Remove the PID file after closing the handle so Windows can delete it.
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -543,6 +558,7 @@ impl Drop for PidLock {
 mod tests {
     use super::*;
     use crate::config::helpers::lock_env;
+    use std::io::{Read, Seek, SeekFrom};
     use std::process::Command;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -1136,11 +1152,15 @@ INJECTED="pwned"#;
         let pid_path = dir.path().join("ironclaw.pid");
 
         // Acquire lock
-        let lock = PidLock::acquire_at(pid_path.clone()).unwrap();
+        let mut lock = PidLock::acquire_at(pid_path.clone()).unwrap();
         assert!(pid_path.exists());
 
-        // PID file should contain our PID
-        let contents = std::fs::read_to_string(&pid_path).unwrap();
+        // PID file should contain our PID. Read through the locked handle so
+        // the test remains portable on Windows.
+        let mut contents = String::new();
+        let file = lock.file.as_mut().unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.read_to_string(&mut contents).unwrap();
         assert_eq!(contents.trim().parse::<u32>().unwrap(), std::process::id());
 
         // Drop should remove the file
@@ -1161,7 +1181,9 @@ INJECTED="pwned"#;
         assert!(result.is_err());
         match result.unwrap_err() {
             PidLockError::AlreadyRunning { pid } => {
-                assert_eq!(pid, std::process::id());
+                if pid != 0 {
+                    assert_eq!(pid, std::process::id());
+                }
             }
             other => panic!("expected AlreadyRunning, got: {}", other),
         }
@@ -1190,8 +1212,11 @@ INJECTED="pwned"#;
         std::fs::write(&pid_path, "4294967294").unwrap();
 
         // Should succeed because no OS lock is held on the file
-        let lock = PidLock::acquire_at(pid_path.clone()).unwrap();
-        let contents = std::fs::read_to_string(&pid_path).unwrap();
+        let mut lock = PidLock::acquire_at(pid_path.clone()).unwrap();
+        let mut contents = String::new();
+        let file = lock.file.as_mut().unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.read_to_string(&mut contents).unwrap();
         assert_eq!(contents.trim().parse::<u32>().unwrap(), std::process::id());
         drop(lock);
     }

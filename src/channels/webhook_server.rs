@@ -1,4 +1,4 @@
-//! Unified HTTP server for all webhook routes.
+﻿//! Unified HTTP server for all webhook routes.
 //!
 //! Composes route fragments from HttpChannel, WASM channel router, etc.
 //! into a single axum server. Channels define routes but never spawn servers.

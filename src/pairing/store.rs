@@ -1,4 +1,4 @@
-//! DB-backed pairing store.
+﻿//! DB-backed pairing store.
 //!
 //! Replaces the file-based `~/.ironclaw/{channel}-pairing.json` store.
 //! Delegates to the `ChannelPairingStore` DB sub-trait. `remove` evicts from

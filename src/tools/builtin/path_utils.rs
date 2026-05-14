@@ -135,6 +135,42 @@ pub fn validate_path(path_str: &str, base_dir: Option<&Path>) -> Result<PathBuf,
     Ok(resolved)
 }
 
+/// Return the temp directory used by tools for transient files.
+///
+/// Unix tools use `/tmp` directly. On Windows, `/tmp` is treated as a
+/// portable alias for the per-user temp directory.
+pub fn tool_temp_dir() -> PathBuf {
+    if cfg!(target_os = "windows") {
+        std::env::temp_dir()
+    } else {
+        PathBuf::from("/tmp")
+    }
+}
+
+/// Validate a path that is expected to live under the tool temp directory.
+///
+/// On Windows, `/tmp/...` is mapped onto the native temp directory so prompts
+/// can keep using the same temp-path convention cross-platform.
+pub fn validate_tool_temp_path(path_str: &str) -> Result<PathBuf, ToolError> {
+    let temp_dir = tool_temp_dir();
+
+    if cfg!(target_os = "windows") {
+        if let Some(relative) = path_str.strip_prefix("/tmp/") {
+            return validate_path(relative, Some(&temp_dir));
+        }
+
+        return validate_path(path_str, Some(&temp_dir));
+    }
+
+    if !path_str.starts_with("/tmp/") {
+        return Err(ToolError::InvalidParameters(
+            "path must be under /tmp/".to_string(),
+        ));
+    }
+
+    validate_path(path_str, Some(&temp_dir))
+}
+
 /// Basic path safety check without requiring a base directory.
 ///
 /// This is a fallback check that blocks obvious traversal attempts:

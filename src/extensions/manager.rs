@@ -1,4 +1,4 @@
-//! Central extension manager that dispatches operations by ExtensionKind.
+﻿//! Central extension manager that dispatches operations by ExtensionKind.
 //!
 //! Holds references to channel runtime, WASM tool runtime, MCP infrastructure,
 //! secrets store, and tool registry. All extension operations (search, install,
