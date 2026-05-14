@@ -43,6 +43,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Restart automatically if the process exits non-zero (e.g. postgres was briefly slow
+    # after passing the healthcheck, or a transient migration error on first boot).
+    # 3 attempts gives enough recovery window without masking persistent misconfig.
+    restart: on-failure:3
     env_file:
       - .env
     environment:
