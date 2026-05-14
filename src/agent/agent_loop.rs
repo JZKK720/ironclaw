@@ -32,9 +32,9 @@ use crate::error::{ChannelError, Error};
 use crate::extensions::ExtensionManager;
 use crate::generated_images::GeneratedImageSentinel;
 use crate::hooks::HookRegistry;
-use crate::llm::LlmProvider;
 use crate::tools::ToolRegistry;
 use crate::workspace::Workspace;
+use ironclaw_llm::LlmProvider;
 use ironclaw_safety::SafetyLayer;
 use ironclaw_skills::SkillRegistry;
 
@@ -343,9 +343,9 @@ pub struct AgentDeps {
     /// SSE manager for live job event streaming to the web gateway.
     pub sse_tx: Option<Arc<crate::channels::web::sse::SseManager>>,
     /// HTTP interceptor for trace recording/replay.
-    pub http_interceptor: Option<Arc<dyn crate::llm::recording::HttpInterceptor>>,
+    pub http_interceptor: Option<Arc<dyn ironclaw_llm::recording::HttpInterceptor>>,
     /// Audio transcription middleware for voice messages.
-    pub transcription: Option<Arc<crate::llm::transcription::TranscriptionMiddleware>>,
+    pub transcription: Option<Arc<ironclaw_llm::transcription::TranscriptionMiddleware>>,
     /// Document text extraction middleware for PDF, DOCX, PPTX, etc.
     pub document_extraction: Option<Arc<crate::document_extraction::DocumentExtractionMiddleware>>,
     /// Sandbox readiness state for full-job routine dispatch.
@@ -567,6 +567,16 @@ impl Agent {
         self.deps.workspace.as_ref()
     }
 
+    pub(crate) fn workspace_for_user(&self, user_id: &str) -> Option<Arc<Workspace>> {
+        self.workspace().map(|ws| {
+            if ws.user_id() == user_id {
+                Arc::clone(ws)
+            } else {
+                Arc::new(ws.scoped_to_user(user_id))
+            }
+        })
+    }
+
     pub(crate) fn hooks(&self) -> &Arc<HookRegistry> {
         &self.deps.hooks
     }
@@ -721,14 +731,7 @@ impl Agent {
         // unsatisfied (setup skills can still activate). Errors checking
         // a marker are logged and treated as unsatisfied.
         let mut satisfied: std::collections::HashSet<String> = std::collections::HashSet::new();
-        if let Some(ws) = self.deps.workspace.as_ref() {
-            // Scope the workspace to the requesting user so multi-user
-            // channels check the correct user's marker state.
-            let scoped_ws = if ws.user_id() == user_id {
-                std::sync::Arc::clone(ws)
-            } else {
-                std::sync::Arc::new(ws.scoped_to_user(user_id))
-            };
+        if let Some(scoped_ws) = self.workspace_for_user(user_id) {
             for marker in &distinct_markers {
                 match scoped_ws.exists(marker).await {
                     Ok(true) => {
@@ -1278,7 +1281,9 @@ impl Agent {
             // Apply transcription middleware to audio attachments
             let mut message = message;
             if let Some(ref transcription) = self.deps.transcription {
-                transcription.process(&mut message).await;
+                transcription
+                    .process(&mut message.attachments, &mut message.content)
+                    .await;
             }
 
             // Apply document extraction middleware to document attachments
@@ -1420,7 +1425,7 @@ impl Agent {
 
     /// Store extracted document text in workspace memory for future search/recall.
     async fn store_extracted_documents(&self, message: &IncomingMessage) {
-        let workspace = match self.workspace() {
+        let workspace = match self.workspace_for_user(&message.user_id) {
             Some(ws) => ws,
             None => return,
         };
@@ -1661,6 +1666,11 @@ impl Agent {
                 }
                 Submission::Expected { description } => {
                     return crate::bridge::handle_expected(self, message, description)
+                        .await
+                        .map(HandleOutcome::from);
+                }
+                Submission::PairingClaim { channel, code } => {
+                    return crate::bridge::handle_pairing_claim(self, message, channel, code)
                         .await
                         .map(HandleOutcome::from);
                 }
@@ -2043,7 +2053,7 @@ impl Agent {
             Submission::Compact => self.process_compact(session.clone(), thread_id).await,
             Submission::Clear => self.process_clear(session.clone(), thread_id).await,
             Submission::NewThread => self.process_new_thread(message).await,
-            Submission::Heartbeat => self.process_heartbeat().await,
+            Submission::Heartbeat => self.process_heartbeat(&message.user_id).await,
             Submission::Summarize => self.process_summarize(session.clone(), thread_id).await,
             Submission::Suggest => self.process_suggest(session.clone(), thread_id).await,
             Submission::Expected { description } => {
@@ -2194,6 +2204,24 @@ impl Agent {
                     result
                 }
             }
+            Submission::PairingClaim { channel, code } => {
+                // Pairing approval is independent of engine_v2 — it only
+                // touches the pairing store and the extension manager.
+                // Reuse the bridge handler so v1 and v2 surfaces behave
+                // identically (#3317).
+                match crate::bridge::handle_pairing_claim(self, message, &channel, &code).await {
+                    Ok(crate::bridge::BridgeOutcome::Respond(text)) => {
+                        Ok(SubmissionResult::Response { content: text })
+                    }
+                    Ok(crate::bridge::BridgeOutcome::NoResponse)
+                    | Ok(crate::bridge::BridgeOutcome::Pending) => {
+                        Ok(SubmissionResult::Ok { message: None })
+                    }
+                    Err(e) => Ok(SubmissionResult::Error {
+                        message: format!("Pairing approval failed: {e}"),
+                    }),
+                }
+            }
             Submission::Plan { sub } => {
                 use crate::agent::submission::PlanSubcommand;
                 let rewritten = match sub {
@@ -2236,7 +2264,7 @@ impl Agent {
             SubmissionResult::Response { content } => {
                 // Suppress silent replies (e.g. from group chat "nothing to say" responses).
                 // Silent replies exit single-message REPL invocations.
-                if crate::llm::is_silent_reply(&content) {
+                if ironclaw_llm::is_silent_reply(&content) {
                     tracing::debug!("Suppressing silent reply token");
                     Ok(HandleOutcome::Shutdown)
                 } else if content.is_empty() {
@@ -2299,16 +2327,14 @@ mod tests {
     use crate::agent::agent_loop::{Agent, AgentDeps, HandleOutcome};
     use crate::agent::cost_guard::{CostGuard, CostGuardConfig};
     use crate::agent::submission::{AuthGateResolution, Submission};
-    use crate::channels::IncomingMessage;
+    use crate::channels::{AttachmentKind, IncomingAttachment, IncomingMessage};
+    use crate::config::{AgentConfig, SafetyConfig, SkillsConfig};
     use crate::error::ChannelError;
     use crate::hooks::HookRegistry;
     use crate::tools::ToolRegistry;
-    use crate::{
-        config::{AgentConfig, SafetyConfig, SkillsConfig},
-        llm::{
-            CompletionRequest, CompletionResponse, FinishReason, LlmProvider,
-            ToolCompletionRequest, ToolCompletionResponse,
-        },
+    use ironclaw_llm::{
+        CompletionRequest, CompletionResponse, FinishReason, LlmProvider, ToolCompletionRequest,
+        ToolCompletionResponse,
     };
     use ironclaw_safety::SafetyLayer;
     use rust_decimal::Decimal;
@@ -2421,6 +2447,65 @@ mod tests {
             Some(Arc::new(crate::context::ContextManager::new(1))),
             None,
         )
+    }
+
+    #[cfg(feature = "libsql")]
+    #[tokio::test]
+    async fn store_extracted_documents_writes_to_message_user_workspace() {
+        let (db, _dir) = crate::agent::test_support::make_libsql_test_db().await;
+        let owner_workspace = Arc::new(crate::workspace::Workspace::new_with_db(
+            "owner-scope",
+            Arc::clone(&db),
+        ));
+        let mut agent = make_legacy_handle_message_test_agent();
+        agent.deps.store = Some(Arc::clone(&db));
+        agent.deps.workspace = Some(owner_workspace);
+
+        let message = IncomingMessage::new("gateway", "alice", "uploaded a document")
+            .with_attachments(vec![IncomingAttachment {
+                id: "doc-1".to_string(),
+                kind: AttachmentKind::Document,
+                mime_type: "text/plain".to_string(),
+                filename: Some("conversation-notes.txt".to_string()),
+                size_bytes: Some(42),
+                source_url: None,
+                storage_key: None,
+                local_path: None,
+                extracted_text: Some("alice-only extracted conversation text".to_string()),
+                data: Vec::new(),
+                duration_secs: None,
+            }]);
+
+        let before_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        agent.store_extracted_documents(&message).await;
+        let after_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+        let mut candidate_paths = vec![format!("documents/{before_date}/conversation-notes.txt")];
+        if after_date != before_date {
+            candidate_paths.push(format!("documents/{after_date}/conversation-notes.txt"));
+        }
+
+        let alice_ws = crate::workspace::Workspace::new_with_db("alice", Arc::clone(&db));
+        let mut stored = None;
+        for path in &candidate_paths {
+            if let Ok(doc) = alice_ws.read(path).await {
+                stored = Some((path.clone(), doc));
+                break;
+            }
+        }
+        let (path, alice_doc) =
+            stored.expect("extracted document should be stored under the message user");
+        assert!(
+            alice_doc
+                .content
+                .contains("alice-only extracted conversation text")
+        );
+
+        let owner_ws = crate::workspace::Workspace::new_with_db("owner-scope", Arc::clone(&db));
+        assert!(
+            owner_ws.read(&path).await.is_err(),
+            "extracted document must not be stored under the startup owner scope"
+        );
     }
 
     #[test]

@@ -1442,28 +1442,28 @@ impl ExtensionManager {
     /// list after the user deactivates everything. The setup wizard's
     /// `channels.wasm_channels` list is only a first-run fallback before any
     /// runtime activation state has been persisted.
+    ///
+    /// Fails loud on settings-store errors: a DB outage or schema drift
+    /// returns `Err` rather than silently dropping the persisted state and
+    /// falling back to the configured list, which would mask the failure
+    /// and quietly re-activate channels the user had deactivated.
     pub async fn load_startup_active_channels(
         &self,
         user_id: &str,
         configured_names: Vec<String>,
-    ) -> Vec<String> {
+    ) -> Result<Vec<String>, crate::error::DatabaseError> {
         let Some(store) = self.settings_store() else {
-            return normalize_extension_names(configured_names);
+            return Ok(normalize_extension_names(configured_names));
         };
 
-        match store.get_setting(user_id, "activated_channels").await {
-            Ok(Some(value)) => match serde_json::from_value::<Vec<String>>(value) {
-                Ok(names) => normalize_extension_names(names),
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to deserialize activated_channels");
-                    Vec::new()
-                }
-            },
-            Ok(None) => normalize_extension_names(configured_names),
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to load activated_channels setting");
-                Vec::new()
+        match store.get_setting(user_id, "activated_channels").await? {
+            Some(value) => {
+                let names = serde_json::from_value::<Vec<String>>(value).map_err(|e| {
+                    crate::error::DatabaseError::Serialization(format!("activated_channels: {e}"))
+                })?;
+                Ok(normalize_extension_names(names))
             }
+            None => Ok(normalize_extension_names(configured_names)),
         }
     }
 
@@ -3404,10 +3404,56 @@ impl ExtensionManager {
             .await?;
         self.invalidate_latent_wasm_provider_actions_cache().await;
 
+        // Register the WASM tool with the engine's tool registry
+        // immediately so the model can call it without a separate
+        // enablement step. Auth is checked at execute time by
+        // `AuthManager::check_action_auth`, which raises an
+        // `Authentication` gate when the declared credential is
+        // missing — the inline-await machinery (#3133/#3166) parks
+        // the caller until OAuth completes, then retries the action.
+        //
+        // Best-effort: a registration failure here doesn't unwind the
+        // download. The user can retry via the existing /activate
+        // endpoint, or the next ensure_extension_ready cycle picks
+        // it up. We log so a CI failure isn't silent. The
+        // `InstallResult.message` reflects which arm we hit so the
+        // caller / UI can prompt for follow-up instead of optimistically
+        // claiming readiness when activation actually failed.
+        let activated = match self.activate_wasm_tool(name, &self.user_id).await {
+            Ok(_) => {
+                tracing::debug!(
+                    extension = %name,
+                    "Auto-registered WASM tool with registry on install"
+                );
+                true
+            }
+            Err(e) => {
+                tracing::warn!(
+                    extension = %name,
+                    error = %e,
+                    "Failed to auto-register WASM tool on install — \
+                     falling back to lazy activation. The tool will \
+                     not be callable until the user resolves the \
+                     activation error or completes setup."
+                );
+                false
+            }
+        };
+
+        let message = if activated {
+            format!("WASM tool '{}' installed and ready.", name)
+        } else {
+            format!(
+                "WASM tool '{}' installed; activation failed — \
+                 retry via the activate endpoint or complete setup.",
+                name
+            )
+        };
+
         Ok(InstallResult {
             name: name.to_string(),
             kind: ExtensionKind::WasmTool,
-            message: format!("WASM tool '{}' installed. Run activate to load it.", name),
+            message,
         })
     }
 
@@ -5233,6 +5279,18 @@ impl ExtensionManager {
                     .await
                     .map_err(|e| e.to_string())?;
 
+                    // Half-2 of #3133, two-pronged auto-resume. See
+                    // `src/channels/web/features/oauth/mod.rs` for the
+                    // matching wire on the gateway-OAuth path.
+                    let _ =
+                        crate::bridge::resolve_inline_gates_for_credential(&user_id, &secret_name)
+                            .await;
+                    let _ = crate::bridge::resume_paused_missions_for_credential(
+                        &user_id,
+                        &secret_name,
+                    )
+                    .await;
+
                     Ok(())
                 }
                 .await;
@@ -5263,7 +5321,10 @@ impl ExtensionManager {
                 }
 
                 if let Some(ref sse) = sse_manager {
-                    sse.broadcast(ironclaw_common::AppEvent::OnboardingState {
+                    // Scope to the OAuth flow owner — a global broadcast
+                    // would surface this onboarding state to every
+                    // connected tenant tab.
+                    let onboarding_event = ironclaw_common::AppEvent::OnboardingState {
                         extension_name: ironclaw_common::ExtensionName::from_trusted(ext_name),
                         state: if success {
                             ironclaw_common::OnboardingStateDto::Ready
@@ -5277,7 +5338,8 @@ impl ExtensionManager {
                         setup_url: None,
                         onboarding: None,
                         thread_id: None,
-                    });
+                    };
+                    sse.broadcast_for_user(&user_id, onboarding_event); // projection-exempt: channel-lifecycle, WASM extension OAuth completion
                 }
             });
 
@@ -8862,7 +8924,8 @@ mod tests {
                 "test",
                 vec!["telegram".to_string(), "discord-bot".to_string()],
             )
-            .await;
+            .await
+            .expect("load");
 
         assert_eq!(actual, vec!["telegram", "discord_bot"]);
     }
@@ -8884,12 +8947,127 @@ mod tests {
 
         let actual = manager
             .load_startup_active_channels("test", vec!["telegram".to_string()])
-            .await;
+            .await
+            .expect("load");
 
         assert!(
             actual.is_empty(),
             "an explicit empty activated_channels setting should keep all channels inactive"
         );
+    }
+
+    /// Headless server path: no DB / no settings store at all. The configured
+    /// list (from the setup wizard's `channels.wasm_channels`) is the only
+    /// source of truth, and channels listed there must be activated at
+    /// startup. This is the regression scenario from #3105.
+    #[tokio::test]
+    async fn load_startup_active_channels_falls_back_to_configured_when_no_settings_store() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let manager = make_test_manager_with_dirs(
+            None,
+            temp_dir.path().join("tools"),
+            temp_dir.path().join("channels"),
+            None,
+        );
+
+        let actual = manager
+            .load_startup_active_channels(
+                "test",
+                vec!["telegram".to_string(), "discord-bot".to_string()],
+            )
+            .await
+            .expect("load");
+
+        assert_eq!(actual, vec!["telegram", "discord_bot"]);
+    }
+
+    /// Settings-store errors must propagate. Silently returning the
+    /// configured list (or an empty list) on a DB outage would mask the
+    /// failure and quietly re-activate channels the user had deactivated.
+    #[tokio::test]
+    async fn load_startup_active_channels_propagates_settings_store_errors() {
+        use crate::db::SettingsStore;
+        use std::sync::Arc;
+
+        struct FailingSettingsStore;
+
+        #[async_trait::async_trait]
+        impl SettingsStore for FailingSettingsStore {
+            async fn get_setting(
+                &self,
+                _user_id: &str,
+                _key: &str,
+            ) -> Result<Option<serde_json::Value>, crate::error::DatabaseError> {
+                Err(crate::error::DatabaseError::Query("simulated".into()))
+            }
+            async fn get_setting_full(
+                &self,
+                _user_id: &str,
+                _key: &str,
+            ) -> Result<Option<crate::history::SettingRow>, crate::error::DatabaseError>
+            {
+                unreachable!()
+            }
+            async fn set_setting(
+                &self,
+                _user_id: &str,
+                _key: &str,
+                _value: &serde_json::Value,
+            ) -> Result<(), crate::error::DatabaseError> {
+                unreachable!()
+            }
+            async fn delete_setting(
+                &self,
+                _user_id: &str,
+                _key: &str,
+            ) -> Result<bool, crate::error::DatabaseError> {
+                unreachable!()
+            }
+            async fn list_settings(
+                &self,
+                _user_id: &str,
+            ) -> Result<Vec<crate::history::SettingRow>, crate::error::DatabaseError> {
+                unreachable!()
+            }
+            async fn get_all_settings(
+                &self,
+                _user_id: &str,
+            ) -> Result<
+                std::collections::HashMap<String, serde_json::Value>,
+                crate::error::DatabaseError,
+            > {
+                unreachable!()
+            }
+            async fn set_all_settings(
+                &self,
+                _user_id: &str,
+                _settings: &std::collections::HashMap<String, serde_json::Value>,
+            ) -> Result<(), crate::error::DatabaseError> {
+                unreachable!()
+            }
+            async fn has_settings(
+                &self,
+                _user_id: &str,
+            ) -> Result<bool, crate::error::DatabaseError> {
+                unreachable!()
+            }
+        }
+
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let manager = make_test_manager_with_dirs(
+            None,
+            temp_dir.path().join("tools"),
+            temp_dir.path().join("channels"),
+            None,
+        )
+        .with_settings_store(Arc::new(FailingSettingsStore));
+
+        let err = manager
+            .load_startup_active_channels("test", vec!["telegram".to_string()])
+            .await
+            .expect_err("settings-store error must propagate");
+
+        assert!(matches!(err, crate::error::DatabaseError::Query(_)));
     }
 
     fn make_test_tar_gz(entries: &[(&str, &[u8])]) -> Vec<u8> {
