@@ -76,4 +76,4 @@ Detailed rules live in [.claude/rules/](../.claude/rules/) and are surfaced as V
 | `/update-local-docker-runtime` | Backup-first guide to pull new GHCR images into the local Docker stack without losing `.env`, bind-mounted state, or the external Postgres volume |
 | `/add-wasm-channel` | Scaffold a new WASM channel from scratch |
 | `/diagnose-startup` | Diagnose and fix Docker Compose startup failures where ironclaw or postgres won't start without a manual reboot |
-| `/intake-upstream-version` | End-to-end guide to merge a specific upstream release tag (e.g. v0.28.1) into fork/main and publish updated GHCR images |
+| `/intake-upstream-version` | End-to-end guide to merge a specific upstream release version (e.g. 0.28.2) into fork/main and publish updated GHCR images |

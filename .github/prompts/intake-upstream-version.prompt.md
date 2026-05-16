@@ -1,10 +1,9 @@
----
-description: "End-to-end guide for intaking a specific upstream version tag (e.g. v0.28.1) into the fork, merging it to origin/main, and publishing an updated GHCR image. Use when you want to sync a named release rather than just the latest upstream/main tip."
+description: "End-to-end guide for intaking a specific upstream release version (e.g. 0.28.2) into the fork, merging it to origin/main, and publishing an updated GHCR image. Use when you want to sync a named release rather than just the latest upstream/main tip."
 ---
 
 # Intake a Specific Upstream Version Tag
 
-Use this when you need to pull in a named upstream release such as `v0.28.1`, merge it into `fork/main`, and publish updated GHCR images.
+Use this when you need to pull in a named upstream release such as `0.28.2`, merge it into `fork/main`, and publish updated GHCR images.
 
 > For a general continuous upstream sync (latest tip, no specific tag), use [`/sync-upstream`](sync-upstream.prompt.md) instead.
 
@@ -31,6 +30,8 @@ Use this when you need to pull in a named upstream release such as `v0.28.1`, me
 
 ---
 
+> **Before starting:** Identify the exact upstream version you are intaking (e.g., `0.28.2`). Replace every `<VERSION>` placeholder in the commands below with that version string. The upstream release tag format is currently `ironclaw-v<VERSION>`, for example `ironclaw-v0.28.2`.
+
 ## Step 1 — Verify remotes and freeze the fork baseline
 
 ```bash
@@ -49,14 +50,14 @@ git pull --ff-only origin main
 ## Step 2 — Find the exact upstream tag
 
 ```bash
-# List all v0.28.x tags in descending order
-git tag -l "v0.28*" --sort=-version:refname
+# List all upstream release tags for the target minor version
+git tag -l "ironclaw-v<MAJOR.MINOR>*" --sort=-version:refname
 
 # Confirm which commit the target tag points to
-git rev-list -n 1 v0.28.1
+git rev-list -n 1 ironclaw-v<VERSION>
 ```
 
-Upstream uses the format `v0.28.1` (no prefix). The fork's own release tags use `ironclaw-v0.28.1`.
+Upstream release tags currently use the format `ironclaw-v<VERSION>` (e.g. `ironclaw-v0.28.2`). Keep the raw version string `<VERSION>` for changelog headings and workflow inputs.
 
 ---
 
@@ -64,16 +65,16 @@ Upstream uses the format `v0.28.1` (no prefix). The fork's own release tags use 
 
 ```bash
 # Fork-only commits that must survive the merge
-git log --oneline --decorate v0.28.1..origin/main
+git log --oneline --decorate ironclaw-v<VERSION>..origin/main
 
 # What the tag brings in on top of the fork
-git log --oneline --decorate -n 40 origin/main..v0.28.1
+git log --oneline --decorate -n 40 origin/main..ironclaw-v<VERSION>
 
 # File-level diff summary
-git diff --stat origin/main..v0.28.1
+git diff --stat origin/main..ironclaw-v<VERSION>
 
 # Migration files landing?
-git diff origin/main..v0.28.1 -- migrations/
+git diff origin/main..ironclaw-v<VERSION> -- migrations/
 
 # Heuristic intake report (runtime vs. worker rebuild impact)
 python scripts/evaluate_upstream_intake.py --fetch --base-ref origin/main
@@ -90,9 +91,9 @@ Check these together:
 - **Migrations**: new `V*.sql` files — confirm version order and both PostgreSQL + libSQL parity.
 - **Cargo.toml / Cargo.lock**: toolchain bumps, new dependencies, security advisories.
 - **FEATURE_PARITY.md**: update any status entries (`❌`, `🚧`, `✅`) that reflect this release.
-- **CHANGELOG.md**: review what changed in `v0.28.1` to anticipate breaking changes.
+- **CHANGELOG.md**: review what changed in the `<VERSION>` release section to anticipate breaking changes.
 - **docker-compose.yml**: check if upstream added or changed services, healthchecks, or image refs.
-- **Fork-only patches**: `git log --oneline --decorate v0.28.1..origin/main` — each fork-only commit must survive or be consciously superseded.
+- **Fork-only patches**: `git log --oneline --decorate ironclaw-v<VERSION>..origin/main` — each fork-only commit must survive or be consciously superseded.
 
 ---
 
@@ -100,8 +101,8 @@ Check these together:
 
 ```bash
 git checkout main
-git merge v0.28.1 --no-edit \
-  -m "chore: intake upstream v0.28.1 into fork/main"
+git merge ironclaw-v<VERSION> --no-edit \
+   -m "chore: intake upstream ironclaw-v<VERSION> into fork/main"
 ```
 
 If the merge exits with conflicts:
@@ -148,20 +149,19 @@ Monitor the build at: `https://github.com/jzkk720/ironclaw/actions/workflows/doc
 
 If you want a pinned version tag in GHCR (not just `:latest`) in addition to the rolling tag:
 
-1. Create and push a fork release tag:
+1. Push the current fork merge commit to the versioned release tag on `origin`:
 
    ```bash
-   git tag ironclaw-v0.28.1
-   git push origin ironclaw-v0.28.1
+   git push origin HEAD:refs/tags/ironclaw-v<VERSION>
    ```
 
 2. Trigger `rebuild-release-image.yml` manually from the GitHub Actions UI:
-   - **source_ref**: `ironclaw-v0.28.1`
-   - **tag**: `0.28.1`
+   - **source_ref**: `ironclaw-v<VERSION>`
+   - **tag**: `<VERSION>`
 
-   This publishes `ghcr.io/jzkk720/ironclaw:0.28.1` pointing at the exact release commit.
+   This publishes `ghcr.io/jzkk720/ironclaw:<VERSION>` pointing at the exact release commit.
 
-> `rebuild-release-image.yml` validates that `source_ref == ironclaw-v<tag>` and that `Cargo.toml` version matches. The input tag must be `0.28.1` (no `v` prefix).
+> `git push origin HEAD:refs/tags/ironclaw-v<VERSION>` avoids colliding with an existing upstream tag of the same name in your local clone. `rebuild-release-image.yml` validates that `source_ref == ironclaw-v<tag>` and that `Cargo.toml` version matches. The input tag must be `<VERSION>` (no `v` prefix, e.g. `0.28.2`).
 
 ---
 
