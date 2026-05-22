@@ -25,6 +25,38 @@ fn db_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, String) {
     )
 }
 
+#[cfg(unix)]
+fn make_project_dir_worker_writable(dir: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = std::fs::metadata(dir)
+        .map_err(|e| {
+            format!(
+                "failed to read project dir metadata {}: {}",
+                dir.display(),
+                e
+            )
+        })?
+        .permissions();
+
+    // Restarts reuse an existing bind mount created by the app container as
+    // root, but the worker still runs as uid/gid 1000. Keep the sticky +
+    // writable directory contract consistent with initial sandbox creation.
+    permissions.set_mode(0o1777);
+    std::fs::set_permissions(dir, permissions).map_err(|e| {
+        format!(
+            "failed to update project dir permissions {}: {}",
+            dir.display(),
+            e
+        )
+    })
+}
+
+#[cfg(not(unix))]
+fn make_project_dir_worker_writable(_dir: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
+
 async fn resolve_sandbox_restart_mode(
     store: &dyn crate::db::Database,
     stored_mode: &str,
@@ -542,6 +574,22 @@ pub async fn jobs_restart_handler(
             .await;
 
             let project_dir = std::path::PathBuf::from(&old_job.project_dir);
+            if let Err(error_text) = make_project_dir_worker_writable(&project_dir) {
+                let _ = store
+                    .update_sandbox_job_status(
+                        new_job_id,
+                        "failed",
+                        Some(false),
+                        Some(error_text.as_str()),
+                        None,
+                        Some(chrono::Utc::now()),
+                    )
+                    .await;
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to prepare project dir: {}", error_text),
+                ));
+            }
             let create_result = jm
                 .create_job(
                     new_job_id,
@@ -942,6 +990,8 @@ pub async fn job_files_read_handler(
 mod tests {
     use super::*;
 
+    use std::sync::Arc;
+
     use crate::orchestrator::TokenStore;
     use crate::orchestrator::job_manager::ContainerJobConfig;
 
@@ -1048,5 +1098,83 @@ mod tests {
         let jm = make_job_manager(false, false);
         let result = check_mode_enabled(JobMode::Worker, &jm);
         assert!(result.is_ok(), "worker mode should always be allowed");
+    }
+
+    #[cfg(feature = "libsql")]
+    #[tokio::test]
+    async fn jobs_restart_handler_makes_reused_project_dir_worker_writable() {
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt;
+
+        let (db, _tmp) = crate::testing::test_db().await;
+        let temp = tempfile::tempdir().unwrap();
+        let project_dir = temp.path().join("reused-project-dir");
+        std::fs::create_dir(&project_dir).unwrap();
+
+        #[cfg(unix)]
+        std::fs::set_permissions(&project_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let old_job = crate::history::SandboxJobRecord {
+            id: Uuid::new_v4(),
+            task: "restart me".to_string(),
+            status: "failed".to_string(),
+            user_id: "alice".to_string(),
+            project_dir: project_dir.display().to_string(),
+            success: Some(false),
+            failure_reason: Some("permission denied".to_string()),
+            created_at: chrono::Utc::now(),
+            started_at: Some(chrono::Utc::now()),
+            completed_at: Some(chrono::Utc::now()),
+            credential_grants_json: "[]".to_string(),
+            mcp_servers: None,
+            max_iterations: None,
+        };
+        db.save_sandbox_job(&old_job).await.unwrap();
+
+        let mut state = crate::channels::web::test_helpers::test_gateway_state_with_dependencies(
+            None,
+            Some(db.clone()),
+            None,
+            None,
+        );
+        Arc::get_mut(&mut state).unwrap().job_manager =
+            Some(Arc::new(make_job_manager(false, false)));
+
+        let result = jobs_restart_handler(
+            State(state),
+            AuthenticatedUser(crate::channels::web::auth::UserIdentity {
+                user_id: "alice".to_string(),
+                role: "admin".to_string(),
+                workspace_read_scopes: Vec::new(),
+            }),
+            Path(old_job.id.to_string()),
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "tempdir outside projects base should fail before Docker"
+        );
+
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(&project_dir)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777;
+            assert_eq!(
+                mode, 0o1777,
+                "restart handler should chmod reused project dirs"
+            );
+        }
+
+        #[cfg(not(unix))]
+        {
+            assert!(
+                project_dir.exists(),
+                "restart handler should still reuse the explicit project dir path"
+            );
+        }
     }
 }
