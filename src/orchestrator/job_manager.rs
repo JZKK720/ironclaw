@@ -21,7 +21,16 @@ use ironclaw_common::MAX_WORKER_ITERATIONS;
 const DOCKER_HOST_BASE_DIR_ENV: &str = "IRONCLAW_DOCKER_HOST_BASE_DIR";
 
 fn looks_like_absolute_docker_host_path(path: &Path) -> bool {
-    path.is_absolute() || path.to_string_lossy().starts_with('/')
+    let path_str = path.to_string_lossy();
+    let bytes = path_str.as_bytes();
+
+    path.is_absolute()
+        || path_str.starts_with('/')
+        || path_str.starts_with(r"\\")
+        || matches!(
+            bytes,
+            [drive, b':', sep, ..] if drive.is_ascii_alphabetic() && matches!(sep, b'\\' | b'/')
+        )
 }
 
 /// Which mode a sandbox container runs in.
@@ -1116,6 +1125,24 @@ mod tests {
         let canonical_base = tmp.path().join("container-home");
         let canonical_path = canonical_base.join("projects").join("job-123");
         let host_base = PathBuf::from("/run/desktop/mnt/host/d/ironclaw-home");
+
+        let result = translate_bind_mount_source(
+            &canonical_path,
+            &canonical_base,
+            Some(host_base.as_path()),
+            Uuid::new_v4(),
+        )
+        .unwrap();
+
+        assert_eq!(result, host_base.join("projects").join("job-123"));
+    }
+
+    #[test]
+    fn test_translate_bind_mount_source_accepts_windows_host_base_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical_base = tmp.path().join("container-home");
+        let canonical_path = canonical_base.join("projects").join("job-123");
+        let host_base = PathBuf::from(r"D:\ironclaw-home");
 
         let result = translate_bind_mount_source(
             &canonical_path,
