@@ -6,9 +6,12 @@
 //! - Check job status
 //! - Cancel running jobs
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -758,6 +761,36 @@ fn projects_base() -> PathBuf {
     ironclaw_base_dir().join("projects")
 }
 
+#[cfg(unix)]
+fn make_project_dir_worker_writable(dir: &Path) -> Result<(), ToolError> {
+    let mut permissions = std::fs::metadata(dir)
+        .map_err(|e| {
+            ToolError::ExecutionFailed(format!(
+                "failed to read project dir metadata {}: {}",
+                dir.display(),
+                e
+            ))
+        })?
+        .permissions();
+
+    // The app container creates the bind mount as root, but the sandbox worker
+    // runs as uid/gid 1000. Mark the workspace directory sticky + writable so
+    // the worker can create files without running the whole container as root.
+    permissions.set_mode(0o1777);
+    std::fs::set_permissions(dir, permissions).map_err(|e| {
+        ToolError::ExecutionFailed(format!(
+            "failed to update project dir permissions {}: {}",
+            dir.display(),
+            e
+        ))
+    })
+}
+
+#[cfg(not(unix))]
+fn make_project_dir_worker_writable(_dir: &Path) -> Result<(), ToolError> {
+    Ok(())
+}
+
 /// Resolve the project directory, creating it if it doesn't exist.
 ///
 /// Auto-creates `~/.ironclaw/projects/{project_id}/` so every sandbox job has a
@@ -819,6 +852,8 @@ fn resolve_project_dir(
             (canonical, false)
         }
     };
+
+    make_project_dir_worker_writable(&canonical_dir)?;
 
     let browse_id = canonical_dir
         .file_name()
@@ -2049,6 +2084,12 @@ mod tests {
         assert!(dir.ends_with(project_id.to_string())); // safety: test
         assert_eq!(browse_id, project_id.to_string()); // safety: test
 
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o7777; // safety: test
+            assert_eq!(mode, 0o1777); // safety: test
+        }
+
         // Must be under the projects base
         let base = projects_base().canonicalize().unwrap(); // safety: test
         assert!(dir.starts_with(&base)); // safety: test
@@ -2068,6 +2109,12 @@ mod tests {
         let (dir, browse_id) = resolve_project_dir(Some(explicit.clone()), project_id).unwrap(); // safety: test
         assert!(dir.exists()); // safety: test
         assert_eq!(browse_id, "test_explicit_project"); // safety: test
+
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o7777; // safety: test
+            assert_eq!(mode, 0o1777); // safety: test
+        }
 
         let canonical_base = base.canonicalize().unwrap(); // safety: test
         assert!(dir.starts_with(&canonical_base)); // safety: test
@@ -2585,6 +2632,44 @@ mod tests {
             err.contains("claude_code mode is not enabled"),
             "expected claude_code disabled error, got: {err}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_execute_sandbox_makes_explicit_project_dir_worker_writable() {
+        let manager = Arc::new(ContextManager::new(5));
+        let jm = Arc::new(ContainerJobManager::new(
+            crate::orchestrator::job_manager::ContainerJobConfig::default(),
+            crate::orchestrator::TokenStore::new(),
+        ));
+        let tool = CreateJobTool::new(manager).with_sandbox(jm, None);
+
+        let explicit = projects_base().join(format!("test_execute_sandbox_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&explicit).unwrap(); // safety: test
+        std::fs::set_permissions(&explicit, std::fs::Permissions::from_mode(0o0755)).unwrap(); // safety: test
+
+        let result = tool
+            .execute_sandbox(
+                "test task",
+                Some(explicit.clone()),
+                false,
+                JobMode::ClaudeCode,
+                JobCreationParams::default(),
+                &JobContext::default(),
+            )
+            .await;
+
+        assert!(result.is_err()); // safety: test
+        let err = result.unwrap_err().to_string(); // safety: test
+        assert!(
+            err.contains("claude_code mode is not enabled"),
+            "expected mode-disabled error, got: {err}"
+        );
+
+        let mode = std::fs::metadata(&explicit).unwrap().permissions().mode() & 0o7777; // safety: test
+        assert_eq!(mode, 0o1777); // safety: test
+
+        let _ = std::fs::remove_dir_all(&explicit);
     }
 
     #[tokio::test]
