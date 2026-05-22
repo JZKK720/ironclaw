@@ -4,7 +4,7 @@
 //! containers with their own agent loops (as opposed to ephemeral per-command containers).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -17,6 +17,12 @@ use crate::orchestrator::auth::{CredentialGrant, TokenStore};
 use crate::sandbox::connect_docker;
 
 use ironclaw_common::MAX_WORKER_ITERATIONS;
+
+const DOCKER_HOST_BASE_DIR_ENV: &str = "IRONCLAW_DOCKER_HOST_BASE_DIR";
+
+fn looks_like_absolute_docker_host_path(path: &Path) -> bool {
+    path.is_absolute() || path.to_string_lossy().starts_with('/')
+}
 
 /// Which mode a sandbox container runs in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +258,72 @@ fn validate_bind_mount_path(
     Ok(canonical)
 }
 
+fn translate_bind_mount_source(
+    canonical_container_path: &Path,
+    canonical_container_base: &Path,
+    docker_host_base_dir: Option<&Path>,
+    job_id: Uuid,
+) -> Result<PathBuf, OrchestratorError> {
+    let Some(host_base) = docker_host_base_dir else {
+        return Ok(canonical_container_path.to_path_buf());
+    };
+
+    if !looks_like_absolute_docker_host_path(host_base) {
+        return Err(OrchestratorError::ContainerCreationFailed {
+            job_id,
+            reason: format!(
+                "{} must be an absolute path, got {}",
+                DOCKER_HOST_BASE_DIR_ENV,
+                host_base.display()
+            ),
+        });
+    }
+
+    let relative = canonical_container_path.strip_prefix(canonical_container_base).map_err(|_| {
+        OrchestratorError::ContainerCreationFailed {
+            job_id,
+            reason: format!(
+                "project directory {} is outside canonical base {}",
+                canonical_container_path.display(),
+                canonical_container_base.display()
+            ),
+        }
+    })?;
+
+    Ok(host_base.join(relative))
+}
+
+fn resolve_bind_mount_source(dir: &Path, job_id: Uuid) -> Result<PathBuf, OrchestratorError> {
+    let canonical = validate_bind_mount_path(dir, job_id)?;
+    let canonical_base = ironclaw_base_dir().canonicalize().map_err(|e| {
+        OrchestratorError::ContainerCreationFailed {
+            job_id,
+            reason: format!("failed to canonicalize ironclaw base dir: {e}"),
+        }
+    })?;
+    let docker_host_base_dir = std::env::var_os(DOCKER_HOST_BASE_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+
+    let bind_source = translate_bind_mount_source(
+        &canonical,
+        &canonical_base,
+        docker_host_base_dir.as_deref(),
+        job_id,
+    )?;
+
+    if docker_host_base_dir.is_some() {
+        tracing::debug!(
+            job_id = %job_id,
+            container_path = %canonical.display(),
+            bind_source = %bind_source.display(),
+            "Translated sandbox bind source from container path to Docker host path"
+        );
+    }
+
+    Ok(bind_source)
+}
+
 /// Manages the lifecycle of Docker containers for sandboxed job execution.
 pub struct ContainerJobManager {
     config: ContainerJobConfig,
@@ -439,8 +511,8 @@ impl ContainerJobManager {
         // Build volume mounts (validate project_dir stays within ~/.ironclaw/projects/)
         let mut binds = Vec::new();
         if let Some(ref dir) = project_dir {
-            let canonical = validate_bind_mount_path(dir, job_id)?;
-            binds.push(format!("{}:/workspace:rw", canonical.display()));
+            let bind_source = resolve_bind_mount_source(dir, job_id)?;
+            binds.push(format!("{}:/workspace:rw", bind_source.display()));
             env_vec.push("IRONCLAW_WORKSPACE=/workspace".to_string());
         }
 
@@ -1022,6 +1094,61 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_translate_bind_mount_source_passthrough_without_host_override() {
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical_base = tmp.path().join("ironclaw-home");
+        let canonical_path = canonical_base.join("projects").join("job-123");
+        let result = translate_bind_mount_source(
+            &canonical_path,
+            &canonical_base,
+            None,
+            Uuid::new_v4(),
+        )
+        .unwrap();
+
+        assert_eq!(result, canonical_path);
+    }
+
+    #[test]
+    fn test_translate_bind_mount_source_uses_docker_host_base_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical_base = tmp.path().join("container-home");
+        let canonical_path = canonical_base.join("projects").join("job-123");
+        let host_base = PathBuf::from("/run/desktop/mnt/host/d/ironclaw-home");
+
+        let result = translate_bind_mount_source(
+            &canonical_path,
+            &canonical_base,
+            Some(host_base.as_path()),
+            Uuid::new_v4(),
+        )
+        .unwrap();
+
+        assert_eq!(result, host_base.join("projects").join("job-123"));
+    }
+
+    #[test]
+    fn test_translate_bind_mount_source_rejects_relative_host_base_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical_base = tmp.path().join("container-home");
+        let canonical_path = canonical_base.join("projects").join("job-123");
+
+        let err = translate_bind_mount_source(
+            &canonical_path,
+            &canonical_base,
+            Some(Path::new("relative/ironclaw-home")),
+            Uuid::new_v4(),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            err.contains("IRONCLAW_DOCKER_HOST_BASE_DIR must be an absolute path"),
+            "expected absolute-path validation error, got: {err}"
+        );
+    }
+
     #[tokio::test]
     async fn test_update_worker_status() {
         let store = TokenStore::new();
@@ -1298,6 +1425,15 @@ mod tests {
             source.contains("mode == JobMode::Worker"),
             "create_job_inner must gate IRONCLAW_MAX_ITERATIONS on JobMode::Worker \
              (ClaudeCode has its own max_turns)"
+        );
+    }
+
+    #[test]
+    fn test_create_job_inner_resolves_workspace_bind_source() {
+        let source = include_str!("job_manager.rs");
+        assert!(
+            source.contains("let bind_source = resolve_bind_mount_source(dir, job_id)?;"),
+            "create_job_inner must resolve the Docker bind source before mounting /workspace"
         );
     }
 
