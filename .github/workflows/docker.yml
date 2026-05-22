@@ -1,4 +1,4 @@
-name: Docker Image
+name: Build and Publish Docker Images
 
 on:
   # Called by release.yml or other workflows
@@ -32,8 +32,10 @@ on:
     - cron: '0 * * * *'
 
 env:
-  IMAGE_NAME: nearaidev/ironclaw
-  WORKER_IMAGE_NAME: nearaidev/ironclaw-worker
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: jzkk720
+  IMAGE_NAME: ghcr.io/jzkk720/ironclaw
+  WORKER_IMAGE_NAME: ghcr.io/jzkk720/ironclaw-worker
 
 jobs:
   build:
@@ -41,7 +43,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: read
+      packages: write
       actions: write
     steps:
       - name: Checkout
@@ -120,11 +122,12 @@ jobs:
             echo "target=runtime" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
-          username: ${{ vars.DOCKER_REGISTRY_USER }}
-          password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check if current git commit is already built
         id: check

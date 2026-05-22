@@ -26,3 +26,18 @@ release = false
 name = "ironclaw_gateway"
 publish = false
 release = false
+
+[[package]]
+name = "ironclaw_common"
+publish = false
+release = false
+
+[[package]]
+name = "ironclaw_safety"
+publish = false
+release = false
+
+[[package]]
+name = "ironclaw_skills"
+publish = false
+release = false
