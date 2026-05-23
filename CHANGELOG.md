@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.2-f1](https://github.com/jzkk720/ironclaw/compare/ironclaw-v0.28.2...ironclaw-v0.28.2-f1) - 2026-05-23
+
+### Added
+
+- *(llm)* extract embeddings into `ironclaw_embeddings` crate ([#3739](https://github.com/nearai/ironclaw/pull/3739))
+- *(web)* support externally-provided tools in Responses API ([#3122](https://github.com/nearai/ironclaw/pull/3122))
+- *(gateway)* add logs download button ([#3588](https://github.com/nearai/ironclaw/pull/3588))
+- *(tui)* Ctrl-S downloads logs from the Logs tab ([#3658](https://github.com/nearai/ironclaw/pull/3658))
+
+### Fixed
+
+- *(sandbox)* accept Windows Docker host bind paths
+- *(sandbox)* fix sandbox worker bind source in Docker
+- *(sandbox)* fix sandbox restart project dir permissions
+- *(sandbox)* persist sandbox job completion status
+
+### CI / Release
+
+- *(docker)* publish fork images to GHCR
+- *(docker)* publish `latest` images on `main` push
+- *(docker)* retrigger docker publish after workflow re-enable
+
+### Docs / Maintenance
+
+- *(docs)* document the Responses API end to end ([#3709](https://github.com/nearai/ironclaw/pull/3709))
+- *(deps)* bump dependencies to address security advisories ([#3719](https://github.com/nearai/ironclaw/pull/3719))
+
 ## [0.28.2](https://github.com/nearai/ironclaw/compare/ironclaw-v0.28.1...ironclaw-v0.28.2) - 2026-05-14
 
 ### Fixed
