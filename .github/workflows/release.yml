@@ -479,7 +479,9 @@ jobs:
 
   # Build and push Docker Hub images (:version, :latest, :sha-*) after the GitHub Release exists.
   docker-image:
-    needs: host
+    needs:
+      - plan
+      - host
     if: ${{ always() && needs.host.result == 'success' }}
     permissions:
       contents: read
@@ -488,6 +490,7 @@ jobs:
     uses: ./.github/workflows/docker.yml
     with:
       release: true
+      source_ref: ${{ needs.plan.outputs.tag }}
     secrets: inherit
 
   # Commit patched manifest SHA256 checksums back to main so the repo

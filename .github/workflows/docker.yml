@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      source_ref:
+        description: "Git ref to checkout for reusable workflow runs"
+        required: false
+        type: string
+        default: ""
       tag:
         description: "Image tag override (leave empty for auto-detect)"
         required: false
@@ -25,6 +30,11 @@ on:
         required: false
         type: boolean
         default: false
+      source_ref:
+        description: "Git ref to checkout before building"
+        required: false
+        type: string
+        default: ""
       tag:
         description: "Image tag override (leave empty for auto-detect)"
         required: false
@@ -52,7 +62,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'main' || '' }}
+          ref: ${{ github.event_name == 'workflow_call' && inputs.source_ref || github.event_name == 'workflow_dispatch' && inputs.source_ref || github.event_name == 'schedule' && 'main' || '' }}
           persist-credentials: false
 
       - name: Resolve source git commit
