@@ -66,6 +66,16 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
           persist-credentials: false
           submodules: recursive
+      - name: Disable MSI for fork prerelease tags
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+        run: |
+          if [[ "$RELEASE_TAG" =~ ^ironclaw-v[0-9]+\.[0-9]+\.[0-9]+-f[0-9]+$ ]]; then
+            python -c "from pathlib import Path; path = Path('Cargo.toml'); text = path.read_text(); old = 'installers = [\"shell\", \"powershell\", \"npm\", \"msi\"]'; new = 'installers = [\"shell\", \"powershell\", \"npm\"]'; assert old in text, 'expected installers list not found'; path.write_text(text.replace(old, new, 1)); print('Disabled MSI installer for fork prerelease release tag')"
+          else
+            echo "Keeping MSI installer enabled for $RELEASE_TAG"
+          fi
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -126,6 +136,16 @@ jobs:
           ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive
+      - name: Disable MSI for fork prerelease tags
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          if [[ "$RELEASE_TAG" =~ ^ironclaw-v[0-9]+\.[0-9]+\.[0-9]+-f[0-9]+$ ]]; then
+            python -c "from pathlib import Path; path = Path('Cargo.toml'); text = path.read_text(); old = 'installers = [\"shell\", \"powershell\", \"npm\", \"msi\"]'; new = 'installers = [\"shell\", \"powershell\", \"npm\"]'; assert old in text, 'expected installers list not found'; path.write_text(text.replace(old, new, 1)); print('Disabled MSI installer for fork prerelease release tag')"
+          else
+            echo "Keeping MSI installer enabled for $RELEASE_TAG"
+          fi
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
@@ -164,7 +184,7 @@ jobs:
             # Skip non-WASM entries (e.g. binary tarballs from cargo-dist)
             case "$filename" in *-wasm32-wasip2.tar.gz) ;; *) continue ;; esac
             # Parse kind-prefixed filename: "tool-slack-0.2.1-wasm32-wasip2.tar.gz"
-            # → kind=tool, name=slack
+            # 鈫?kind=tool, name=slack
             kind=$(echo "$filename" | cut -d'-' -f1)
             if [ "$kind" != "tool" ] && [ "$kind" != "channel" ]; then
               echo "::warning::Skipping '$filename': unrecognized kind prefix '$kind'"
@@ -229,6 +249,16 @@ jobs:
           ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive
+      - name: Disable MSI for fork prerelease tags
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          if [[ "$RELEASE_TAG" =~ ^ironclaw-v[0-9]+\.[0-9]+\.[0-9]+-f[0-9]+$ ]]; then
+            python -c "from pathlib import Path; path = Path('Cargo.toml'); text = path.read_text(); old = 'installers = [\"shell\", \"powershell\", \"npm\", \"msi\"]'; new = 'installers = [\"shell\", \"powershell\", \"npm\"]'; assert old in text, 'expected installers list not found'; path.write_text(text.replace(old, new, 1)); print('Disabled MSI installer for fork prerelease release tag')"
+          else
+            echo "Keeping MSI installer enabled for $RELEASE_TAG"
+          fi
       - name: Install cached dist
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -297,7 +327,7 @@ jobs:
 
             # file_stem: JSON filename without extension (e.g. "slack" for slack.json).
             file_stem=$(basename "$manifest" .json)
-            # kind: "tool" or "channel" — used as bundle filename prefix to avoid
+            # kind: "tool" or "channel" 鈥?used as bundle filename prefix to avoid
             # collisions when a tool and channel share the same file_stem (e.g. slack).
             kind=$(jq -r '.kind' "$manifest")
             if [ "$kind" != "tool" ] && [ "$kind" != "channel" ]; then
@@ -305,7 +335,7 @@ jobs:
               exit 1
             fi
             # ext_name: the manifest's .name field (e.g. "slack-tool").
-            # Used for file names *inside* the archive — the installer extracts by manifest.name.
+            # Used for file names *inside* the archive 鈥?the installer extracts by manifest.name.
             ext_name=$(jq -r '.name' "$manifest")
             source_dir=$(jq -r '.source.dir' "$manifest")
             caps_file=$(jq -r '.source.capabilities' "$manifest")
@@ -326,7 +356,7 @@ jobs:
             url_version=$(echo "$existing_url" | sed -n 's/.*-\([0-9].*\)-wasm32-wasip2\.tar\.gz$/\1/p')
 
             if [[ -n "$ext_version" && "$url_version" == "$ext_version" && -n "$existing_sha" ]]; then
-              echo "=== Skipping $file_stem v$ext_version — already checksummed at $existing_url ==="
+              echo "=== Skipping $file_stem v$ext_version 鈥?already checksummed at $existing_url ==="
               continue
             fi
 
@@ -354,7 +384,7 @@ jobs:
               continue
             fi
 
-            # Archive contents use ext_name (manifest .name) — the installer extracts
+            # Archive contents use ext_name (manifest .name) 鈥?the installer extracts
             # files by manifest.name, so these must match even when file_stem differs.
             cp "$wasm_path" "target/wasm-bundles/${ext_name}.wasm"
 
@@ -417,6 +447,16 @@ jobs:
           ref: ${{ needs.plan.outputs.tag }}
           persist-credentials: false
           submodules: recursive
+      - name: Disable MSI for fork prerelease tags
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          if [[ "$RELEASE_TAG" =~ ^ironclaw-v[0-9]+\.[0-9]+\.[0-9]+-f[0-9]+$ ]]; then
+            python -c "from pathlib import Path; path = Path('Cargo.toml'); text = path.read_text(); old = 'installers = [\"shell\", \"powershell\", \"npm\", \"msi\"]'; new = 'installers = [\"shell\", \"powershell\", \"npm\"]'; assert old in text, 'expected installers list not found'; path.write_text(text.replace(old, new, 1)); print('Disabled MSI installer for fork prerelease release tag')"
+          else
+            echo "Keeping MSI installer enabled for $RELEASE_TAG"
+          fi
       - name: Install cached dist
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -511,7 +551,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
-          # persist-credentials kept enabled — job pushes a checksum-update branch.
+          # persist-credentials kept enabled 鈥?job pushes a checksum-update branch.
       - name: Fetch WASM checksums
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -531,10 +571,10 @@ jobs:
           while IFS= read -r line; do
             sha256=$(echo "$line" | awk '{print $1}')
             filename=$(echo "$line" | awk '{print $2}')
-            # Skip non-WASM entries (defensive — this checksums.txt should only have WASM)
+            # Skip non-WASM entries (defensive 鈥?this checksums.txt should only have WASM)
             case "$filename" in *-wasm32-wasip2.tar.gz) ;; *) continue ;; esac
             # Parse kind-prefixed filename: "tool-slack-0.2.1-wasm32-wasip2.tar.gz"
-            # → kind=tool, name=slack
+            # 鈫?kind=tool, name=slack
             kind=$(echo "$filename" | cut -d'-' -f1)
             if [ "$kind" != "tool" ] && [ "$kind" != "channel" ]; then
               echo "::warning::Skipping '$filename': unrecognized kind prefix '$kind'"
