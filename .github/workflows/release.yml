@@ -483,7 +483,7 @@ jobs:
     if: ${{ always() && needs.host.result == 'success' }}
     permissions:
       contents: read
-      packages: read
+      packages: write
       actions: write
     uses: ./.github/workflows/docker.yml
     with:
