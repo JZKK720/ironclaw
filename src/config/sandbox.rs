@@ -45,7 +45,7 @@ impl Default for SandboxModeConfig {
             timeout_secs: 120,
             memory_limit_mb: 2048,
             cpu_shares: 1024,
-            image: "ironclaw-worker:latest".to_string(),
+            image: crate::settings::DEFAULT_SANDBOX_IMAGE.to_string(),
             auto_pull_image: true,
             extra_allowed_domains: Vec::new(),
             reaper_interval_secs: 300,
@@ -58,6 +58,11 @@ impl SandboxModeConfig {
     pub(crate) fn resolve(settings: &crate::settings::Settings) -> Result<Self, ConfigError> {
         let ss = &settings.sandbox;
         let defaults = crate::settings::SandboxSettings::default();
+        let normalized_image = if ss.image == crate::settings::LEGACY_LOCAL_SANDBOX_IMAGE {
+            defaults.image.clone()
+        } else {
+            ss.image.clone()
+        };
 
         // extra_allowed_domains: DB wins if non-empty, otherwise env, otherwise empty.
         let extra_domains = if !ss.extra_allowed_domains.is_empty() {
@@ -107,7 +112,7 @@ impl SandboxModeConfig {
                 &defaults.cpu_shares,
                 "SANDBOX_CPU_SHARES",
             )?,
-            image: db_first_or_default(&ss.image, &defaults.image, "SANDBOX_IMAGE")?,
+            image: db_first_or_default(&normalized_image, &defaults.image, "SANDBOX_IMAGE")?,
             auto_pull_image: db_first_bool(
                 ss.auto_pull_image,
                 defaults.auto_pull_image,
@@ -428,7 +433,7 @@ mod tests {
         assert_eq!(cfg.timeout_secs, 120);
         assert_eq!(cfg.memory_limit_mb, 2048);
         assert_eq!(cfg.cpu_shares, 1024);
-        assert_eq!(cfg.image, "ironclaw-worker:latest");
+        assert_eq!(cfg.image, crate::settings::DEFAULT_SANDBOX_IMAGE);
         assert!(cfg.auto_pull_image);
         assert!(cfg.extra_allowed_domains.is_empty());
     }
@@ -688,6 +693,16 @@ mod tests {
         assert!(!cfg.enabled);
         assert_eq!(cfg.cpu_shares, 99);
         assert!(!cfg.auto_pull_image);
+    }
+
+    #[test]
+    fn sandbox_resolve_migrates_legacy_local_worker_image() {
+        let _guard = crate::config::helpers::lock_env();
+        let mut settings = crate::settings::Settings::default();
+        settings.sandbox.image = crate::settings::LEGACY_LOCAL_SANDBOX_IMAGE.to_string();
+
+        let cfg = SandboxModeConfig::resolve(&settings).expect("resolve");
+        assert_eq!(cfg.image, crate::settings::DEFAULT_SANDBOX_IMAGE);
     }
 
     #[test]

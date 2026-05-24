@@ -82,6 +82,16 @@ services:
         max-size: "20m"
         max-file: "3"
 
+  # Optional: pins the sandbox worker image with an idle container so
+  # Docker Desktop cache cleanup is less likely to remove it between jobs.
+  # This does not replace IronClaw's normal on-demand worker containers.
+  worker-cache:
+    profiles: ["worker-cache"]
+    image: ghcr.io/jzkk720/ironclaw-worker:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-lc", "exec tail -f /dev/null"]
+    read_only: true
+
 volumes:
   ironclaw_data:
     driver: local
@@ -132,7 +142,7 @@ EMBEDDING_MODEL=text-embedding-3-small
 
 # ─── Docker Sandbox ───────────────────────────────────────────────────────────
 SANDBOX_ENABLED=true
-SANDBOX_IMAGE=ironclaw-worker:latest
+SANDBOX_IMAGE=ghcr.io/jzkk720/ironclaw-worker:latest
 SANDBOX_MEMORY_LIMIT_MB=512
 SANDBOX_TIMEOUT_SECS=1800
 SANDBOX_CPU_LIMIT=1.0
@@ -176,6 +186,25 @@ docker compose ps
 # NAME                STATUS          PORTS
 # ironclaw            running         127.0.0.1:3000->3000/tcp
 # ironclaw-postgres   running (healthy)
+```
+
+### Optional: Pin the Worker Image
+
+If you use Docker sandbox jobs on Docker Desktop and frequently clear images or caches,
+you can keep the worker image referenced by an idle container:
+
+```bash
+docker compose --profile worker-cache up -d worker-cache
+```
+
+This only pins `ghcr.io/jzkk720/ironclaw-worker:latest` in the local Docker cache.
+IronClaw still launches a fresh worker container per sandbox job, and the app's
+auto-pull logic remains the real recovery path if the image is ever removed.
+
+To stop the cache container later:
+
+```bash
+docker compose --profile worker-cache rm -sf worker-cache
 ```
 
 ---

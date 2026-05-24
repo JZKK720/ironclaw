@@ -1,1 +1,3 @@
 tests/test-pages/**/*.html linguist-generated=true
+migrations/*.sql text eol=lf
+migrations/checksums.lock text eol=lf

@@ -113,6 +113,7 @@ pub async fn setup_orchestrator(
         let orchestrator_port = resolve_orchestrator_port();
         let job_config = ContainerJobConfig {
             image: config.sandbox.image.clone(),
+            auto_pull_image: config.sandbox.auto_pull_image,
             memory_limit_mb: config.sandbox.memory_limit_mb,
             cpu_shares: config.sandbox.cpu_shares,
             orchestrator_port,
@@ -131,6 +132,14 @@ pub async fn setup_orchestrator(
             acp_enabled: config.acp.enabled,
         };
         let jm = Arc::new(ContainerJobManager::new(job_config, token_store.clone()));
+
+        if let Err(e) = jm.prewarm_worker_image().await {
+            tracing::warn!(
+                error = %e,
+                image = %config.sandbox.image,
+                "Worker image prewarm failed at orchestrator startup; sandbox jobs will retry on demand"
+            );
+        }
 
         let orchestrator_state = api::OrchestratorState {
             llm: Arc::clone(llm),
@@ -202,5 +211,14 @@ mod tests {
 
         // Cleanup
         unsafe { std::env::remove_var("ORCHESTRATOR_PORT") };
+    }
+
+    #[test]
+    fn setup_orchestrator_prewarms_worker_image_before_serving_jobs() {
+        let source = include_str!("mod.rs");
+        assert!(
+            source.contains("if let Err(e) = jm.prewarm_worker_image().await {"),
+            "setup_orchestrator must prewarm the worker image so pruned caches are repaired at startup"
+        );
     }
 }

@@ -90,6 +90,8 @@ pub struct JobCreationParams {
 pub struct ContainerJobConfig {
     /// Docker image for worker containers.
     pub image: String,
+    /// Whether to auto-pull the image if it is missing locally.
+    pub auto_pull_image: bool,
     /// Default memory limit in MB.
     pub memory_limit_mb: u64,
     /// Default CPU shares.
@@ -127,7 +129,8 @@ pub struct ContainerJobConfig {
 impl Default for ContainerJobConfig {
     fn default() -> Self {
         Self {
-            image: "ironclaw-worker:latest".to_string(),
+            image: crate::settings::DEFAULT_SANDBOX_IMAGE.to_string(),
+            auto_pull_image: true,
             memory_limit_mb: 2048,
             cpu_shares: 1024,
             orchestrator_port: 50051,
@@ -410,6 +413,48 @@ impl ContainerJobManager {
         Ok(docker)
     }
 
+    async fn ensure_image_available(
+        &self,
+        job_id: Uuid,
+        docker: &bollard::Docker,
+    ) -> Result<(), OrchestratorError> {
+        let checker = crate::sandbox::ContainerRunner::for_image_ops(
+            docker.clone(),
+            self.config.image.clone(),
+        );
+
+        if checker.image_exists().await {
+            return Ok(());
+        }
+
+        if !self.config.auto_pull_image {
+            return Err(OrchestratorError::ContainerCreationFailed {
+                job_id,
+                reason: format!(
+                    "image {} not found and auto-pull is disabled",
+                    self.config.image
+                ),
+            });
+        }
+
+        checker.pull_image().await.map_err(|e| {
+            OrchestratorError::ContainerCreationFailed {
+                job_id,
+                reason: format!("failed to pull worker image {}: {e}", self.config.image),
+            }
+        })
+    }
+
+    /// Best-effort startup prewarm for the worker image.
+    ///
+    /// This repairs a pruned worker image before the first sandbox job arrives,
+    /// while `create_job_inner()` still performs the same hard check at launch
+    /// time in case the image disappears again later.
+    pub async fn prewarm_worker_image(&self) -> Result<(), OrchestratorError> {
+        let docker = self.docker().await?;
+        self.ensure_image_available(Uuid::nil(), &docker).await
+    }
+
     /// Create and start a new container for a job.
     ///
     /// The caller provides the `job_id` so it can be persisted to the database
@@ -500,6 +545,7 @@ impl ContainerJobManager {
     ) -> Result<(), OrchestratorError> {
         // Connect to Docker (reuses cached connection)
         let docker = self.docker().await?;
+        self.ensure_image_available(job_id, &docker).await?;
 
         // Build container configuration
         // Use host.docker.internal on all platforms — the extra_hosts mapping
@@ -1049,6 +1095,8 @@ mod tests {
     #[test]
     fn test_container_job_config_default() {
         let config = ContainerJobConfig::default();
+        assert_eq!(config.image, crate::settings::DEFAULT_SANDBOX_IMAGE);
+        assert!(config.auto_pull_image);
         assert_eq!(config.orchestrator_port, 50051);
         assert_eq!(config.memory_limit_mb, 2048);
     }
@@ -1590,6 +1638,28 @@ mod tests {
         );
         std::fs::remove_file(&out_path).unwrap();
         assert!(!out_path.exists(), "temp file should be gone after cleanup");
+    }
+
+    #[test]
+    fn test_create_job_inner_ensures_worker_image_before_container_create() {
+        let source = include_str!("job_manager.rs");
+        assert!(
+            source.contains("self.ensure_image_available(job_id, &docker).await?;"),
+            "create_job_inner must ensure the worker image exists or is auto-pulled before create_container"
+        );
+    }
+
+    #[test]
+    fn test_prewarm_worker_image_uses_same_image_guard() {
+        let source = include_str!("job_manager.rs");
+        assert!(
+            source.contains("pub async fn prewarm_worker_image(&self) -> Result<(), OrchestratorError>"),
+            "ContainerJobManager must expose a startup prewarm entry point for the worker image"
+        );
+        assert!(
+            source.contains("self.ensure_image_available(Uuid::nil(), &docker).await"),
+            "prewarm_worker_image must reuse ensure_image_available so startup and job launch stay aligned"
+        );
     }
 
     #[tokio::test]

@@ -813,8 +813,17 @@ fn default_sandbox_cpu_shares() -> u32 {
     1024
 }
 
+/// Fully qualified worker image so Docker can auto-pull it after local prune.
+///
+/// The legacy bare tag (`ironclaw-worker:latest`) only worked when the image
+/// had already been built or pulled locally.
+pub const DEFAULT_SANDBOX_IMAGE: &str = "ghcr.io/jzkk720/ironclaw-worker:latest";
+
+/// Historical local-only default retained for upgrade compatibility.
+pub const LEGACY_LOCAL_SANDBOX_IMAGE: &str = "ironclaw-worker:latest";
+
 fn default_sandbox_image() -> String {
-    "ironclaw-worker:latest".to_string()
+    DEFAULT_SANDBOX_IMAGE.to_string()
 }
 
 impl Default for SandboxSettings {
