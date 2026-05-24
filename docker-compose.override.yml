@@ -1,0 +1,62 @@
+name: ironclaw-v0-26
+
+# Local deployment override for the fork GHCR runtime and Docker Desktop sandbox workers.
+# Keeps the source checkout usable as the stable deployment home without changing the
+# base compose file that upstream tracks for local development.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - app
+    networks:
+      - default
+
+  app:
+    image: ${IRONCLAW_APP_IMAGE:-ghcr.io/jzkk720/ironclaw:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3231:3000"
+      - "127.0.0.1:8281:8080"
+      - "127.0.0.1:50051:50051"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://ironclaw:ironclaw@postgres:5432/ironclaw
+      IRONCLAW_BASE_DIR: /home/ironclaw/.ironclaw
+      SANDBOX_CONTAINER_USER: "0:0"
+    user: "0:0"
+    volumes:
+      - ./extensions/ironclaw-home:/home/ironclaw/.ironclaw
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+
+  # Optional profile: `docker compose --profile worker-cache up -d worker-cache`
+  # keeps the sandbox worker image pinned by a lightweight idle container.
+  # Real sandbox jobs still launch separate on-demand worker containers.
+  worker-cache:
+    profiles:
+      - worker-cache
+    image: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:latest}
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - exec tail -f /dev/null
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - default
+
+volumes:
+  pgdata:
+    external: true
+    name: ironclaw-v024-fresh-install_pgdata
