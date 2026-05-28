@@ -756,17 +756,18 @@ impl Guest for TelegramChannel {
         );
 
         let headers_json = serde_json::json!({}).to_string();
-        let primary_url = get_updates_url(offset, 25);
+        let primary_url = get_updates_url(offset, 10);
 
-        // 35s HTTP timeout outlives Telegram's 30s server-side long-poll.
-        // If the TCP connection drops, retry once immediately with a short poll
-        // so we don't wait a full extra tick (~30s) before delivering updates.
+        // 15s HTTP timeout outlives Telegram's 10s server-side long-poll.
+        // A 10s server-side timeout keeps the total on_poll execution well within
+        // the host's callback_timeout, preventing the spawn_blocking thread from
+        // leaking past its deadline and causing a concurrent-getUpdates 409.
         let result = match channel_host::http_request(
             "GET",
             &primary_url,
             &headers_json,
             None,
-            Some(35_000),
+            Some(15_000),
         ) {
             Ok(response) => Ok(response),
             Err(primary_err) => {

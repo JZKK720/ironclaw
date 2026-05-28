@@ -58,6 +58,7 @@
       "allow_polling": true,
       "min_poll_interval_ms": 30000,
       "workspace_prefix": "channels/telegram/",
+      "callback_timeout_secs": 45,
       "emit_rate_limit": {
         "messages_per_minute": 100,
         "messages_per_hour": 5000
@@ -69,11 +70,11 @@
     }
   },
   "config": {
-    "bot_username": null,
-    "owner_id": null,
+    "bot_username": "Cc_ironclaw01_bot",
+    "owner_id": "8062464547",
     "respond_to_all_group_messages": false,
     "webhook_enabled": false,
-    "polling_enabled": false,
+    "polling_enabled": true,
     "poll_interval_ms": 30000,
     "dm_policy": "pairing",
     "allow_from": []

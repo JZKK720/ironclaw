@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- *(telegram)* use channel-specific `callback_timeout` (45 s) instead of global runtime default in all 9 WASM `execute_*` call sites, preventing premature timeouts on long-running poll/respond callbacks
+- *(wasm)* `http_request` host function now uses `ssrf_safe_client_builder_for_target()` to avoid unintended HTTP proxy routing when `HTTPS_PROXY` is set
+- *(telegram)* reduce `getUpdates` long-poll timeout from 25 s to 10 s and HTTP client timeout from 35 s to 15 s to stay within the 45 s callback budget
+- *(telegram)* `owner_id` in capabilities JSON must be a JSON string (not null or number); fixed type and value so owner restriction correctly activates on startup
+
 ## [0.28.2-f1](https://github.com/jzkk720/ironclaw/compare/ironclaw-v0.28.2...ironclaw-v0.28.2-f1) - 2026-05-23
 
 ### Added

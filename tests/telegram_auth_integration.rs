@@ -104,6 +104,27 @@ fn telegram_capabilities_path() -> std::path::PathBuf {
     local
 }
 
+#[test]
+fn telegram_capabilities_set_poll_callback_timeout() {
+    let capabilities_bytes = std::fs::read(telegram_capabilities_path())
+        .unwrap_or_else(|err| panic!("Failed to read Telegram capabilities file: {err}"));
+    let capabilities_file =
+        ironclaw::channels::wasm::ChannelCapabilitiesFile::from_bytes(&capabilities_bytes)
+            .unwrap_or_else(|err| panic!("Failed to parse Telegram capabilities file: {err}"));
+
+    let timeout_secs = capabilities_file
+        .capabilities
+        .channel
+        .as_ref()
+        .and_then(|channel| channel.callback_timeout_secs);
+
+    assert_eq!(
+        timeout_secs,
+        Some(45),
+        "Telegram polling uses 30s long-poll requests, so the channel callback timeout must leave headroom above 30s"
+    );
+}
+
 /// Create a test runtime for WASM channel operations.
 fn create_test_runtime() -> Arc<WasmChannelRuntime> {
     let config = WasmChannelRuntimeConfig::for_testing();
