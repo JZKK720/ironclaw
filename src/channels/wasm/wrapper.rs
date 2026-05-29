@@ -60,6 +60,7 @@ use crate::secrets::host_matches_pattern;
 use crate::tools::wasm::credential_injector::{InjectedCredentials, inject_credential};
 use crate::tools::wasm::{
     LogLevel, WasmResourceLimiter, reject_private_ip, ssrf_safe_client_builder,
+    ssrf_safe_client_builder_for_target, validate_and_resolve_http_target,
 };
 use ironclaw_common::CredentialName;
 use ironclaw_safety::LeakDetector;
@@ -457,12 +458,6 @@ impl near::agent::channel_host::Host for ChannelStoreData {
             .map(|h| h.max_response_bytes)
             .unwrap_or(10 * 1024 * 1024);
 
-        // Resolve hostname and reject private/internal IPs to prevent DNS rebinding.
-        // Test/dev URL rewrites intentionally point at local fake servers.
-        if !allow_private_test_target {
-            reject_private_ip(&transport_url)?;
-        }
-
         // Make the HTTP request using a dedicated single-threaded runtime.
         // We're inside spawn_blocking, so we can't rely on the main runtime's
         // I/O driver (it may be busy with WASM compilation or other startup work).
@@ -477,11 +472,25 @@ impl near::agent::channel_host::Host for ChannelStoreData {
             );
         }
         let rt = self.http_runtime.as_ref().expect("just initialized");
+        let resolved_target = if allow_private_test_target {
+            None
+        } else {
+            reject_private_ip(&transport_url)?;
+            // Resolve once and pin the validated addresses into reqwest so there
+            // isn't a second DNS lookup window between validation and connect.
+            Some(rt.block_on(validate_and_resolve_http_target(&transport_url))?)
+        };
         let result = rt.block_on(async {
-            let client = ssrf_safe_client_builder()
-                .connect_timeout(Duration::from_secs(10))
-                .build()
-                .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+            let client = if let Some(ref resolved_target) = resolved_target {
+                ssrf_safe_client_builder_for_target(resolved_target)
+            } else {
+                // Test-only loopback rewrites must bypass system proxies so fake
+                // local servers are reached directly instead of via HTTP_PROXY.
+                ssrf_safe_client_builder().no_proxy()
+            }
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
             let mut request = match method.to_uppercase().as_str() {
                 "GET" => client.get(&transport_url),
@@ -1485,7 +1494,7 @@ impl WasmChannel {
         let rate_limiter = self.rate_limiter.clone();
         let credentials = self.credentials.clone();
         let pairing_store = self.pairing_store.clone();
-        let callback_timeout = self.runtime.config().callback_timeout;
+        let callback_timeout = self.capabilities.callback_timeout;
         let workspace_store = self.workspace_store.clone();
         let callback_lock = self.callback_lock.clone();
         let last_broadcast_metadata = self.last_broadcast_metadata.clone();
@@ -1894,7 +1903,7 @@ impl WasmChannel {
         let prepared = Arc::clone(&self.prepared);
         let capabilities = Self::inject_workspace_reader(&self.capabilities, &self.workspace_store);
         let config_json = self.config_json.read().await.clone();
-        let timeout = self.runtime.config().callback_timeout;
+        let timeout = self.capabilities.callback_timeout;
         let channel_name = self.name.clone();
         let credentials = self.get_credentials().await;
         let host_credentials = resolve_channel_host_credentials(
@@ -2046,7 +2055,7 @@ impl WasmChannel {
         let runtime = Arc::clone(&self.runtime);
         let prepared = Arc::clone(&self.prepared);
         let capabilities = Self::inject_workspace_reader(&self.capabilities, &self.workspace_store);
-        let timeout = self.runtime.config().callback_timeout;
+        let timeout = self.capabilities.callback_timeout;
         let credentials = self.get_credentials().await;
         let host_credentials = resolve_channel_host_credentials(
             &self.capabilities,
@@ -2155,7 +2164,7 @@ impl WasmChannel {
         let runtime = Arc::clone(&self.runtime);
         let prepared = Arc::clone(&self.prepared);
         let capabilities = Self::inject_workspace_reader(&self.capabilities, &self.workspace_store);
-        let timeout = self.runtime.config().callback_timeout;
+        let timeout = self.capabilities.callback_timeout;
         let channel_name = self.name.clone();
         let credentials = self.get_credentials().await;
         let host_credentials = resolve_channel_host_credentials(
@@ -2275,7 +2284,7 @@ impl WasmChannel {
         let runtime = Arc::clone(&self.runtime);
         let prepared = Arc::clone(&self.prepared);
         let capabilities = Self::inject_workspace_reader(&self.capabilities, &self.workspace_store);
-        let timeout = self.runtime.config().callback_timeout;
+        let timeout = self.capabilities.callback_timeout;
         let channel_name = self.name.clone();
         let credentials = self.get_credentials().await;
         let host_credentials = resolve_channel_host_credentials(
@@ -2436,7 +2445,7 @@ impl WasmChannel {
         let runtime = Arc::clone(&self.runtime);
         let prepared = Arc::clone(&self.prepared);
         let capabilities = Self::inject_workspace_reader(&self.capabilities, &self.workspace_store);
-        let timeout = self.runtime.config().callback_timeout;
+        let timeout = self.capabilities.callback_timeout;
         let channel_name = self.name.clone();
         let credentials = self.get_credentials().await;
         let host_credentials = resolve_channel_host_credentials(
@@ -2550,7 +2559,7 @@ impl WasmChannel {
         let runtime = Arc::clone(&self.runtime);
         let prepared = Arc::clone(&self.prepared);
         let capabilities = Self::inject_workspace_reader(&self.capabilities, &self.workspace_store);
-        let timeout = self.runtime.config().callback_timeout;
+        let timeout = self.capabilities.callback_timeout;
         let channel_name = self.name.clone();
         let credentials = self.get_credentials().await;
         let host_credentials = resolve_channel_host_credentials(
@@ -2777,7 +2786,7 @@ impl WasmChannel {
                 let workspace_store = self.workspace_store.clone();
                 let callback_lock = self.callback_lock.clone();
                 let settings_store = self.settings_store.clone();
-                let callback_timeout = self.runtime.config().callback_timeout;
+                let callback_timeout = self.capabilities.callback_timeout;
                 let Some(wit_update) = status_to_wit(&status, metadata) else {
                     return Ok(());
                 };
@@ -3084,7 +3093,7 @@ impl WasmChannel {
         let rate_limiter = self.rate_limiter.clone();
         let credentials = self.credentials.clone();
         let pairing_store = self.pairing_store.clone();
-        let callback_timeout = self.runtime.config().callback_timeout;
+        let callback_timeout = self.capabilities.callback_timeout;
         let workspace_store = self.workspace_store.clone();
         let callback_lock = self.callback_lock.clone();
         let last_broadcast_metadata = self.last_broadcast_metadata.clone();
