@@ -16,6 +16,39 @@ Start with these deeper docs as needed:
 - `src/NETWORK_SECURITY.md`
 - `tests/e2e/CLAUDE.md`
 
+## Build and Sandbox Shortcuts
+
+- On Windows, prefer Docker validation over host Rust execution. Use `docker compose up -d --build ironclaw` for local rebuilds, and use `docker compose pull` plus `docker compose up -d --no-build postgres ironclaw` when the task is to validate pulled GHCR images instead of rebuilding.
+- Do not conflate the two Docker sandbox paths:
+	- `SANDBOX_IMAGE` / `ghcr.io/jzkk720/ironclaw-worker:latest` is still required for orchestrated job containers, the hidden `ironclaw worker` CLI path, and Claude Code or ACP container jobs. The `ironclaw-worker` compose service is build-only and normally stays stopped.
+	- Engine v2 `/project/` sandboxing is separate and uses [crates/Dockerfile.sandbox](crates/Dockerfile.sandbox) with `IRONCLAW_SANDBOX_IMAGE`; read [docs/plans/2026-04-10-engine-v2-sandbox.md](docs/plans/2026-04-10-engine-v2-sandbox.md) before changing that flow.
+- If a task proposes removing worker or sandbox Docker assets, audit `src/config/sandbox.rs`, `src/orchestrator/job_manager.rs`, `src/cli/mod.rs`, and `src/bridge/sandbox/` first.
+
+## Release Alignment Workflow
+
+- `origin/main` is the promoted fork runtime baseline. Treat a checked-out `master` branch as a local working branch, not the deployment baseline, unless the user explicitly says otherwise.
+- Do not assume the fork baseline is aligned with a specific upstream release line without checking current divergence against `upstream/main` and `upstream/staging`.
+- The current fork publishes from `origin/main`; if an `origin/staging` branch is added later, treat it as the pre-promotion image track rather than the promoted baseline.
+- `upstream` points at `nearai/ironclaw` for comparison only. Treat it as fetch-only even if the local remote config exposes a push URL; never plan or execute pushes to `upstream`.
+- Historical validation branches `v0.23-fresh-install`, `v0.23-fresh-install-local`, and `v0.23-fresh-install-refresh` are retired. Do not use them for new update work unless you are doing forensic comparison.
+- For release-alignment or clean-upgrade work, start by diffing the current worktree against `origin/main`. Reopen broader `upstream/main` or `upstream/staging` comparison only when validating divergence or planning a sync.
+- For planning-first release intakes where fork-only commits or settings may conflict with upstream, route through `/plan-upstream-upgrade` before merging, publishing GHCR, or telling operators to pull new images.
+- Prefer updating the fork baseline directly instead of creating new long-lived release-alignment branches.
+- For major release-line jumps such as `v0.28`, run `python scripts/evaluate_upstream_intake.py --fetch --base-ref origin/main` before planning the merge. Use it to separate incoming upstream commits from fork-only commits and to see whether runtime or worker GHCR rebuilds are implicated.
+- Clean upgrades for deployed environments must prefer pullable GHCR images over local source builds. Treat local build-only compose or ad hoc `docker build` paths as dev or forensic flows unless the task explicitly requires rebuilding locally.
+- Published GHCR runtime tags should expose a single moving `:latest` tag for automatic pull-based upgrades. Use release tags or digests when you need a pinned rollout instead of a moving tag.
+- Treat `.env`, the `IRONCLAW_HOME_DIR` bind mount, and the external `ironclaw-pgdata` volume as operator-owned state. Never overwrite or delete them during upstream intake; back them up before any local `docker compose pull` or container recreation.
+- When the running container and local git history disagree, verify which checkout, image tag, and image digest the container actually uses before changing code. Use `docker-compose.yml`, workflow files, and deployment docs/scripts as runtime source-of-truth references.
+- Treat sibling scratch or intake checkouts such as `../ironclaw-intake-*` as disposable by default. They are not part of the active local runtime unless the current repo's [.env](.env), [docker-compose.yml](docker-compose.yml), [docker-compose.override.yml](docker-compose.override.yml), bind mounts, or a running container explicitly reference them.
+- For "can I delete this local checkout?" questions, check [.env](.env), [docker-compose.yml](docker-compose.yml), [docker-compose.override.yml](docker-compose.override.yml), and [README.md](README.md) before answering. If the stack is using GHCR images plus `IRONCLAW_HOME_DIR` and named Docker volumes only, extra intake clones are usually safe to remove after stopping any terminals or tools still pointed at them.
+- When adding or changing image publication, keep all runtime images that must interoperate version-matched, update compose/docs/scripts/workflows together, and prefer explicit version tags or digests over mutable `latest`-only rollout plans.
+- Treat GHCR image publication and installer/release publication as separate delivery channels. Do not claim that a GHCR-safe runtime update will automatically reach PowerShell/shell/MSI installers unless the referenced release assets and docs also point at the intended fork-owned channel.
+- For questions such as "can fork/main or local containers pin to upstream GHCR from now on?", route through `/validate-ghcr-upgrade` and require evidence that upstream GHCR is equivalent to the intended fork runtime, worker image, compose defaults, and release/update surfaces before changing any image pins or docs.
+- For major upstream jumps or “can we publish this image?” requests, compare the fork against both `upstream/staging` and `upstream/main`, then validate migrations, runtime/worker image tags, `docker-compose.yml`, Watchtower behavior, and installer/update surfaces together before confirming rollout safety.
+- Do not recommend repointing `IRONCLAW_APP_IMAGE`, `SANDBOX_IMAGE`, `docker-compose.yml`, or Watchtower targets from fork GHCR to upstream GHCR unless that audit shows fork-only runtime and release-channel deltas are intentionally retired or no longer relevant for the targeted release line.
+- If operators want automatic refresh via Watchtower, Dockhand, or scheduled `docker compose pull`, keep the moving `:latest` tag and the pinned release tags available simultaneously so both managed and controlled rollout styles remain possible.
+- Record which upstream commits were cherry-picked, skipped, or deferred when staging diverges from main.
+
 ## Architecture Mental Model
 
 - Channels normalize external input into `IncomingMessage`; `ChannelManager` merges all active channel streams.
