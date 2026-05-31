@@ -7,12 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fork Upgrade Notes
+
+- upgrade the fork runtime baseline to upstream `0.29.0` while keeping fork-owned GHCR publication and pull-based local rollout workflows
+- keep the fork-side Telegram callback timeout, reduced `getUpdates` polling budget, and `owner_id` capability fixes in place for local runtime stability
+- back up `.env`, `IRONCLAW_HOME_DIR`, and the external PostgreSQL volume before pulling the refreshed fork images into a local Docker stack
+
 ### Fixed
 
 - *(telegram)* use channel-specific `callback_timeout` (45 s) instead of global runtime default in all 9 WASM `execute_*` call sites, preventing premature timeouts on long-running poll/respond callbacks
 - *(wasm)* `http_request` host function now uses `ssrf_safe_client_builder_for_target()` to avoid unintended HTTP proxy routing when `HTTPS_PROXY` is set
 - *(telegram)* reduce `getUpdates` long-poll timeout from 25 s to 10 s and HTTP client timeout from 35 s to 15 s to stay within the 45 s callback budget
 - *(telegram)* `owner_id` in capabilities JSON must be a JSON string (not null or number); fixed type and value so owner restriction correctly activates on startup
+
+## [0.29.0](https://github.com/nearai/ironclaw/compare/ironclaw-v0.28.2...ironclaw-v0.29.0) - 2026-05-26
+
+### Added
+
+- *(channels)* add WeCom channel ([#2394](https://github.com/nearai/ironclaw/pull/2394))
+- *(web)* support externally-provided tools in Responses API ([#3122](https://github.com/nearai/ironclaw/pull/3122))
+- *(gateway)* add logs download button ([#3588](https://github.com/nearai/ironclaw/pull/3588))
+- *(tui)* add Ctrl-S log download from the Logs tab ([#3658](https://github.com/nearai/ironclaw/pull/3658))
+- *(engine)* add `IRONCLAW_DISABLE_CODEACT` flag for disabling v2 CodeAct ([#3665](https://github.com/nearai/ironclaw/pull/3665))
+
+### Fixed
+
+- *(markdown)* avoid converting emphasis inside generated Slack angle links ([#3532](https://github.com/nearai/ironclaw/pull/3532))
+- *(web)* restore NEAR AI API Key and Fetch Models in configure UI ([#3742](https://github.com/nearai/ironclaw/pull/3742))
+
+### Changed
+
+- *(embeddings)* extract embeddings into `ironclaw_embeddings` crate ([#3739](https://github.com/nearai/ironclaw/pull/3739))
+- *(deps)* bump dependencies to address security advisories ([#3719](https://github.com/nearai/ironclaw/pull/3719))
+- *(deps)* update Wasmtime to clear cargo-deny advisory ([#4028](https://github.com/nearai/ironclaw/pull/4028))
+
+### CI / Release
+
+- *(canary)* improve live canary counts, chat-install probe, and strict xfails ([#3682](https://github.com/nearai/ironclaw/pull/3682))
+- *(ci)* add `/benchmark` slash-command dispatcher ([#3808](https://github.com/nearai/ironclaw/pull/3808))
+- *(ci)* grant `pull-requests: write` for `/benchmark` reactions endpoint ([#3835](https://github.com/nearai/ironclaw/pull/3835))
+- *(ci)* post benchmark "started" comment with dispatcher run link ([#3836](https://github.com/nearai/ironclaw/pull/3836))
+
+### Documentation
+
+- *(api)* document the Responses API end-to-end ([#3709](https://github.com/nearai/ironclaw/pull/3709))
 
 ## [0.28.2-f1](https://github.com/jzkk720/ironclaw/compare/ironclaw-v0.28.2...ironclaw-v0.28.2-f1) - 2026-05-23
 
