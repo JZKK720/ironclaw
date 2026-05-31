@@ -18,8 +18,8 @@
   },
   "artifacts": {
     "wasm32-wasip2": {
-      "url": "https://github.com/nearai/ironclaw/releases/download/ironclaw-v0.27.0/channel-slack-0.3.2-wasm32-wasip2.tar.gz",
-      "sha256": "6aefa0664613d85f1dc3b64c9dd53557044948d0816b367cfb58efecb14c5840"
+      "url": "https://github.com/JZKK720/ironclaw/releases/download/ironclaw-v0.29.0/channel-slack-0.3.4-wasm32-wasip2.tar.gz",
+      "sha256": "ce5a8c733aa263cf569b5bb29953afc5e46ec257151093775f0f45e981f1faf0"
     }
   },
   "auth_summary": {
