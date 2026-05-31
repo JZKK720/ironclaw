@@ -19,6 +19,14 @@ pub const DEFAULT_EXCLUDED_DIRS: &[&str] = &[
     ".venv",
 ];
 
+/// Shared temporary directory for tool-generated files.
+///
+/// This uses the OS temp location instead of a hardcoded `/tmp` so attachment
+/// paths remain valid on Windows as well as Unix-like hosts.
+pub fn tool_temp_dir() -> PathBuf {
+    std::env::temp_dir()
+}
+
 /// Normalize a path by resolving `.` and `..` components lexically (no filesystem access).
 ///
 /// This is critical for security: `std::fs::canonicalize` only works on paths that exist,

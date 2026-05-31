@@ -1115,16 +1115,20 @@ impl SetupWizard {
                 .ok()
                 .and_then(|b| b.parse::<DatabaseBackend>().ok());
 
-            if matches!(env_backend, Some(DatabaseBackend::Postgres)) {
-                if let Ok(url) = std::env::var("DATABASE_URL") {
-                    return self.finish_postgres_auto_setup(url).await;
+            match env_backend {
+                Some(DatabaseBackend::Postgres) => {
+                    if let Ok(url) = std::env::var("DATABASE_URL") {
+                        return self.finish_postgres_auto_setup(url).await;
+                    }
+                    // Postgres configured but no URL — fall through to interactive
+                    return self.step_database().await;
                 }
-                // Postgres configured but no URL — fall through to interactive
-                return self.step_database().await;
-            }
-
-            if let Ok(url) = std::env::var("DATABASE_URL") {
-                return self.finish_postgres_auto_setup(url).await;
+                Some(DatabaseBackend::LibSql) => {}
+                None => {
+                    if let Ok(url) = std::env::var("DATABASE_URL") {
+                        return self.finish_postgres_auto_setup(url).await;
+                    }
+                }
             }
         }
 
@@ -4704,12 +4708,15 @@ mod tests {
         let _lock = lock_env();
         // Ensure the real env var is unset so the only source is the overlay.
         let _guard = EnvGuard::clear("NEARAI_API_KEY");
+        let _guard2 = EnvGuard::clear("NEARAI_BASE_URL");
 
         crate::config::helpers::set_runtime_env("NEARAI_API_KEY", "test-key-from-overlay");
+        crate::config::helpers::set_runtime_env("NEARAI_BASE_URL", "");
         let config = build_nearai_model_fetch_config();
 
         // Clean up runtime overlay
         crate::config::helpers::set_runtime_env("NEARAI_API_KEY", "");
+        crate::config::helpers::set_runtime_env("NEARAI_BASE_URL", "");
 
         assert!(
             config.nearai.api_key.is_some(),

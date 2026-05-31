@@ -1240,6 +1240,22 @@ mod tests {
         }
     }
 
+    fn current_directory_command() -> &'static str {
+        if cfg!(target_os = "windows") {
+            "cd"
+        } else {
+            "pwd"
+        }
+    }
+
+    fn large_output_command() -> &'static str {
+        if cfg!(target_os = "windows") {
+            r#"(for /L %i in (1,1,131072) do @set /p =A<nul) & exit /b 0"#
+        } else {
+            r#"head -c 131072 /dev/zero | tr '\0' 'A'"#
+        }
+    }
+
     async fn execute_shell(
         tool: &ShellTool,
         params: serde_json::Value,
@@ -1278,7 +1294,7 @@ mod tests {
             let result = execute_shell(
                 &tool,
                 serde_json::json!({
-                    "command": "pwd",
+                    "command": current_directory_command(),
                     "workdir": workdir
                 }),
             )
@@ -1783,7 +1799,7 @@ mod tests {
         // Without draining pipes before wait(), this would deadlock.
         let result = tool
             .execute(
-                serde_json::json!({"command": "python3 -c \"print('A' * 131072)\""}),
+                serde_json::json!({"command": large_output_command()}),
                 &ctx,
             )
             .await

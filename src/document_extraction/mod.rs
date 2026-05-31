@@ -150,6 +150,52 @@ mod tests {
     use super::*;
     use crate::channels::IncomingAttachment;
 
+    fn escape_pdf_literal(text: &str) -> String {
+        text.replace('\\', "\\\\")
+            .replace('(', "\\(")
+            .replace(')', "\\)")
+    }
+
+    fn minimal_pdf_with_text(text: &str) -> Vec<u8> {
+        let stream = format!(
+            "BT\n/F1 24 Tf\n72 100 Td\n({}) Tj\nET",
+            escape_pdf_literal(text)
+        );
+        let objects = [
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_string(),
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n".to_string(),
+            format!(
+                "4 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+                stream.len(),
+                stream
+            ),
+            "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+                .to_string(),
+        ];
+
+        let mut pdf = String::from("%PDF-1.4\n");
+        let mut offsets = Vec::with_capacity(objects.len());
+        for object in &objects {
+            offsets.push(pdf.len());
+            pdf.push_str(object);
+        }
+
+        let xref_offset = pdf.len();
+        pdf.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
+        pdf.push_str("0000000000 65535 f \n");
+        for offset in offsets {
+            pdf.push_str(&format!("{offset:010} 00000 n \n"));
+        }
+        pdf.push_str(&format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+            objects.len() + 1,
+            xref_offset
+        ));
+
+        pdf.into_bytes()
+    }
+
     fn doc_attachment(mime: &str, filename: &str, data: Vec<u8>) -> IncomingAttachment {
         IncomingAttachment {
             id: "doc_1".to_string(),
@@ -264,14 +310,13 @@ mod tests {
 
     #[tokio::test]
     async fn extracts_pdf_text() {
-        // Minimal valid PDF with text "Hello World"
-        let pdf_bytes = include_bytes!("../../tests/fixtures/hello.pdf");
+        let pdf_bytes = minimal_pdf_with_text("Hello World");
         let middleware = DocumentExtractionMiddleware::new();
         let mut msg =
             IncomingMessage::new("test", "user1", "review").with_attachments(vec![doc_attachment(
                 "application/pdf",
                 "hello.pdf",
-                pdf_bytes.to_vec(),
+                pdf_bytes,
             )]);
 
         middleware.process(&mut msg).await;

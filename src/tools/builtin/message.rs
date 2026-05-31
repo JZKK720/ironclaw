@@ -188,7 +188,7 @@ impl Tool for MessageTool {
          If you provide `target` without `channel` and no scoped channel can be resolved, the \
          message may be broadcast across connected channels instead of sent to just one. \
          Supports file attachments: first download the file with the http tool using save_to \
-         (e.g., http GET https://picsum.photos/800/600 save_to=/tmp/photo.jpg), then pass the \
+            (e.g., save to your system temp directory or ~/.ironclaw), then pass the \
          file path in the attachments array. Images are sent as photos on Telegram. \
          - Signal: target accepts E.164 (+1234567890) or group ID \
          - Telegram: target accepts username or chat ID \
@@ -306,9 +306,9 @@ impl Tool for MessageTool {
         let attachment_count = attachments.len();
 
         // Validate all attachment paths against the sandbox and verify existence.
-        // Allow paths under the base_dir (~/.ironclaw) or /tmp/.
+        // Allow paths under the base_dir (~/.ironclaw) or the OS temp directory.
         for path in &attachments {
-            let tmp_dir = PathBuf::from("/tmp");
+            let tmp_dir = crate::tools::builtin::path_utils::tool_temp_dir();
             let resolved =
                 crate::tools::builtin::path_utils::validate_path(path, Some(&self.base_dir))
                     .or_else(|_| {
@@ -316,8 +316,9 @@ impl Tool for MessageTool {
                     })
                     .map_err(|e| {
                         ToolError::ExecutionFailed(format!(
-                            "Attachment path must be within {} or /tmp/: {}",
+                            "Attachment path must be within {} or {}: {}",
                             self.base_dir.display(),
+                            tmp_dir.display(),
                             e
                         ))
                     })?;
@@ -583,7 +584,7 @@ mod tests {
         tool.set_context(Some("signal".to_string()), Some("+1234567890".to_string()))
             .await;
 
-        // Execute with attachments outside both sandbox (~/.ironclaw) and /tmp/
+        // Execute with attachments outside both sandbox (~/.ironclaw) and the OS temp dir.
         let ctx = crate::context::JobContext::new("test", "test description");
         let result = tool
             .execute(
@@ -637,15 +638,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn message_tool_with_attachments_in_tmp_no_channel() {
+    async fn message_tool_with_attachments_in_temp_dir_no_channel() {
         use std::fs;
 
         let tool = MessageTool::new(Arc::new(ChannelManager::new()));
         tool.set_context(Some("telegram".to_string()), Some("12345".to_string()))
             .await;
 
-        // Create temp files under /tmp (allowed as secondary attachment dir)
-        let temp_dir = tempfile::tempdir_in("/tmp").unwrap();
+        // Create temp files under the OS temp dir (allowed as secondary attachment dir).
+        let temp_dir =
+            tempfile::tempdir_in(crate::tools::builtin::path_utils::tool_temp_dir()).unwrap();
         let file1 = temp_dir.path().join("photo.jpg");
         let file2 = temp_dir.path().join("doc.pdf");
         fs::write(&file1, "fake image data").unwrap();
@@ -662,7 +664,7 @@ mod tests {
             )
             .await;
 
-        // Path validation passes for /tmp paths, fails at channel send (no real channel)
+        // Path validation passes for temp-dir paths, fails at channel send (no real channel).
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(

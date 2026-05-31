@@ -69,6 +69,14 @@ const BLOCKED_DEVICE_PATHS: &[&str] = &[
     "/dev/stderr",
 ];
 
+fn is_blocked_device_or_proc_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+
+    BLOCKED_DEVICE_PATHS.iter().any(|blocked| {
+        normalized == *blocked || normalized.starts_with(&format!("{blocked}/"))
+    }) || (normalized.starts_with("/proc/") && normalized.contains("/fd/"))
+}
+
 /// Maximum file size for apply_patch operations (10MB).
 const MAX_PATCH_SIZE: u64 = 10 * 1024 * 1024;
 
@@ -142,6 +150,13 @@ impl Tool for ReadFileTool {
     ) -> Result<ToolOutput, ToolError> {
         let path_str = require_str(&params, "path")?;
 
+        if is_blocked_device_or_proc_path(path_str) {
+            return Err(ToolError::InvalidParameters(format!(
+                "Reading device/proc paths is not allowed: {}",
+                path_str
+            )));
+        }
+
         let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let limit = params.get("limit").and_then(|v| v.as_u64());
         let has_explicit_range = offset > 0 || limit.is_some();
@@ -161,12 +176,8 @@ impl Tool for ReadFileTool {
 
         // Block device paths that would hang or produce infinite output.
         // Check the resolved path to prevent bypasses via relative paths or symlinks.
-        let resolved_str = path.to_string_lossy();
-        if BLOCKED_DEVICE_PATHS
-            .iter()
-            .any(|p| resolved_str.starts_with(p))
-            || (resolved_str.starts_with("/proc/") && resolved_str.contains("/fd/"))
-        {
+        let resolved_str = path.to_string_lossy().replace('\\', "/");
+        if is_blocked_device_or_proc_path(&resolved_str) {
             return Err(ToolError::InvalidParameters(format!(
                 "Reading device/proc paths is not allowed: {}",
                 path.display()

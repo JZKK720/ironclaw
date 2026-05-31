@@ -5916,19 +5916,22 @@ fn prepare_response_attachments(
 
     let mut attachments = Vec::with_capacity(paths.len() + inline_attachments.len());
     let mut total_bytes: u64 = 0;
-    let tmp_base = std::path::Path::new("/tmp");
+    let tmp_base = crate::tools::builtin::path_utils::tool_temp_dir();
     let home_base = dirs::home_dir()
         .map(|h| h.join(".ironclaw"))
         .unwrap_or_default();
 
     for path in paths {
-        // Validate paths are under /tmp/ or ~/.ironclaw/ to prevent arbitrary file reads
-        let validated = crate::tools::builtin::path_utils::validate_path(path, Some(tmp_base))
+        // Validate paths are under the OS temp dir or ~/.ironclaw/ to prevent arbitrary file reads.
+        let validated = crate::tools::builtin::path_utils::validate_path(path, Some(&tmp_base))
             .or_else(|_| crate::tools::builtin::path_utils::validate_path(path, Some(&home_base)));
         let validated = validated.map_err(|e| {
             format!(
-                "Invalid attachment path '{}': must be under /tmp/ or ~/.ironclaw/: {}",
-                path, e
+                "Invalid attachment path '{}': must be under {} or {}: {}",
+                path,
+                tmp_base.display(),
+                home_base.display(),
+                e
             )
         })?;
 
@@ -6032,6 +6035,13 @@ mod tests {
     use crate::tools::wasm::{
         Capabilities as ToolCapabilities, EndpointPattern, HttpCapability, LogLevel, ResourceLimits,
     };
+
+    fn write_tool_temp_attachment(bytes: &[u8]) -> tempfile::NamedTempFile {
+        let mut file = tempfile::NamedTempFile::new_in(crate::tools::builtin::path_utils::tool_temp_dir())
+            .expect("tempfile");
+        std::io::Write::write_all(&mut file, bytes).expect("write");
+        file
+    }
 
     #[cfg(feature = "libsql")]
     async fn make_db_backed_pairing_store(owner_id: &str) -> (PairingStore, tempfile::TempDir) {
@@ -6350,8 +6360,7 @@ mod tests {
 
     #[test]
     fn test_prepare_response_attachments_prepares_wechat_file_payloads() {
-        let mut file = tempfile::NamedTempFile::new_in("/tmp").expect("tempfile");
-        std::io::Write::write_all(&mut file, b"wechat image bytes").expect("write");
+        let file = write_tool_temp_attachment(b"wechat image bytes");
         let path = file.path().to_string_lossy().to_string();
 
         let attachments =
@@ -6367,8 +6376,7 @@ mod tests {
 
     #[test]
     fn test_prepare_response_attachments_passthrough_for_non_wechat_channels() {
-        let mut file = tempfile::NamedTempFile::new_in("/tmp").expect("tempfile");
-        std::io::Write::write_all(&mut file, b"plain bytes").expect("write");
+        let file = write_tool_temp_attachment(b"plain bytes");
         let path = file.path().to_string_lossy().to_string();
 
         let attachments =

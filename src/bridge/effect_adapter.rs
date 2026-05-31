@@ -6505,7 +6505,12 @@ Use this skill to set up a Pika meeting.
             metadata
                 .bundle_path
                 .as_deref()
-                .is_some_and(|path| path.ends_with("/pikastream-video-meeting")),
+                .is_some_and(|path| {
+                    std::path::Path::new(path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        == Some("pikastream-video-meeting")
+                }),
             "bundle path: {:?}",
             metadata.bundle_path
         );

@@ -113,7 +113,7 @@ async fn create_slack_channel_with_store(
     config_json: &str,
     pairing_store: Arc<PairingStore>,
 ) -> WasmChannel {
-    let module = load_slack_module(&runtime)
+    let module: Arc<PreparedChannelModule> = load_slack_module(&runtime)
         .await
         .expect("Failed to load Slack WASM module");
 

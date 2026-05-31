@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use ironclaw::db::DatabaseHandles;
+use ironclaw::db::{Database, DatabaseHandles};
 use ironclaw::secrets::{CreateSecretParams, SecretsCrypto, SecretsStore};
 
 // ---------------------------------------------------------------------------
@@ -45,9 +45,10 @@ async fn connect_with_handles_returns_db_and_libsql_handle() {
     let db_path = dir.path().join("test.db");
     let config = libsql_config(&db_path);
 
-    let (db, handles) = ironclaw::db::connect_with_handles(&config)
-        .await
-        .expect("connect_with_handles");
+    let (db, handles): (Arc<dyn Database>, DatabaseHandles) =
+        ironclaw::db::connect_with_handles(&config)
+            .await
+            .expect("connect_with_handles");
 
     // Database trait object works — run a trivial operation.
     db.run_migrations().await.expect("migrations");
@@ -71,7 +72,7 @@ async fn connect_from_config_produces_working_db() {
     let config = libsql_config(&db_path);
 
     // connect_from_config delegates to connect_with_handles internally.
-    let db = ironclaw::db::connect_from_config(&config)
+    let db: Arc<dyn Database> = ironclaw::db::connect_from_config(&config)
         .await
         .expect("connect_from_config");
 
@@ -90,13 +91,15 @@ async fn secrets_store_from_handles_round_trips() {
     let db_path = dir.path().join("test.db");
     let config = libsql_config(&db_path);
 
-    let (_db, handles) = ironclaw::db::connect_with_handles(&config)
-        .await
-        .expect("connect");
+    let (_db, handles): (Arc<dyn Database>, DatabaseHandles) =
+        ironclaw::db::connect_with_handles(&config)
+            .await
+            .expect("connect");
 
     let crypto = test_crypto();
-    let store = ironclaw::secrets::create_secrets_store(crypto, &handles)
-        .expect("create_secrets_store should return Some for libsql");
+    let store: Arc<dyn SecretsStore + Send + Sync> =
+        ironclaw::secrets::create_secrets_store(crypto, &handles)
+            .expect("create_secrets_store should return Some for libsql");
 
     // Round-trip a secret to prove the store works.
     store
@@ -123,9 +126,10 @@ async fn db_create_secrets_store_standalone_round_trips() {
     let config = libsql_config(&db_path);
     let crypto = test_crypto();
 
-    let store = ironclaw::db::create_secrets_store(&config, crypto)
-        .await
-        .expect("db::create_secrets_store");
+    let store: Arc<dyn SecretsStore + Send + Sync> =
+        ironclaw::db::create_secrets_store(&config, crypto)
+            .await
+            .expect("db::create_secrets_store");
 
     store
         .create(
@@ -155,16 +159,19 @@ async fn both_secrets_factories_produce_compatible_stores() {
     let crypto = test_crypto();
 
     // Factory 1: connect_with_handles + secrets::create_secrets_store
-    let (_db, handles) = ironclaw::db::connect_with_handles(&config)
-        .await
-        .expect("connect");
-    let store_a = ironclaw::secrets::create_secrets_store(Arc::clone(&crypto), &handles)
-        .expect("store from handles");
+    let (_db, handles): (Arc<dyn Database>, DatabaseHandles) =
+        ironclaw::db::connect_with_handles(&config)
+            .await
+            .expect("connect");
+    let store_a: Arc<dyn SecretsStore + Send + Sync> =
+        ironclaw::secrets::create_secrets_store(Arc::clone(&crypto), &handles)
+            .expect("store from handles");
 
     // Factory 2: db::create_secrets_store (standalone)
-    let store_b = ironclaw::db::create_secrets_store(&config, crypto)
-        .await
-        .expect("standalone store");
+    let store_b: Arc<dyn SecretsStore + Send + Sync> =
+        ironclaw::db::create_secrets_store(&config, crypto)
+            .await
+            .expect("standalone store");
 
     // Write with factory 1, read with factory 2.
     store_a

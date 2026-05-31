@@ -8746,6 +8746,13 @@ mod tests {
         }
     }
 
+    fn existing_env_var_for_auth() -> &'static str {
+        ["HOME", "USERPROFILE", "PATH"]
+            .into_iter()
+            .find(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()))
+            .unwrap_or("PATH")
+    }
+
     #[test]
     fn test_infer_kind_from_url() {
         assert_eq!(
@@ -14141,6 +14148,7 @@ mod tests {
         let dir = tempfile::tempdir().map_err(|err| format!("temp dir: {err}"))?;
         let tools_dir = dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).map_err(|err| format!("tools dir: {err}"))?;
+        let env_var = existing_env_var_for_auth();
 
         let caps = serde_json::json!({
             "auth": {
@@ -14158,7 +14166,7 @@ mod tests {
                         "prompt": "consent"
                     }
                 },
-                "env_var": "HOME"
+                "env_var": env_var
             }
         });
         std::fs::write(tools_dir.join("google-docs.wasm"), b"\0asm")
@@ -14169,7 +14177,7 @@ mod tests {
         )
         .map_err(|err| format!("write caps: {err}"))?;
 
-        // No managed token in secrets store — only the env var (HOME) is present.
+        // No managed token in secrets store — only the external env-var token is present.
         let mgr = make_test_manager(None, tools_dir);
 
         assert_eq!(
@@ -14188,8 +14196,9 @@ mod tests {
         let dir = tempfile::tempdir().map_err(|err| format!("temp dir: {err}"))?;
         let tools_dir = dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).map_err(|err| format!("tools dir: {err}"))?;
+        let env_var = existing_env_var_for_auth();
 
-        // Both tools point env_var at HOME (always set) so the env-var path
+        // Both tools point env_var at a known-present host variable so the env-var path
         // would return Ready — but the managed token path should win.
         let caps = serde_json::json!({
             "auth": {
@@ -14207,7 +14216,7 @@ mod tests {
                         "prompt": "consent"
                     }
                 },
-                "env_var": "HOME"
+                "env_var": env_var
             }
         });
         std::fs::write(tools_dir.join("google-docs.wasm"), b"\0asm")
@@ -14235,7 +14244,7 @@ mod tests {
                         "prompt": "consent"
                     }
                 },
-                "env_var": "HOME"
+                "env_var": env_var
             }
         });
         std::fs::write(tools_dir.join("google-slides.wasm"), b"\0asm")
