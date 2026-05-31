@@ -202,6 +202,62 @@ LLM_MODEL=anthropic/claude-sonnet-4
 
 See [docs/capabilities/llm-providers.md](docs/capabilities/llm-providers.md) for a full provider guide.
 
+### OpenSpace as an MCP Co-Worker
+
+If `openspace-mcp` is installed on your `PATH`, IronClaw can use OpenSpace as an MCP-backed delegated execution surface.
+
+Recommended first setup: use stdio transport and register OpenSpace through IronClaw's own MCP CLI.
+
+```bash
+ironclaw mcp add openspace --transport stdio --command openspace-mcp --description "OpenSpace delegated execution and skill search" --env OPENSPACE_WORKSPACE=/path/to/OpenSpace
+```
+
+Optional environment variables:
+
+- `OPENSPACE_API_KEY` — enables OpenSpace cloud skill search and uploads
+- `OPENSPACE_HOST_SKILL_DIRS` — optional host skill directories for OpenSpace to index in addition to its own local skills
+
+Validate the connection:
+
+```bash
+ironclaw mcp test openspace
+```
+
+If you also want current third-party library and SDK docs inside the same host, register Context7 as a second stdio MCP server:
+
+```bash
+ironclaw mcp add context7 --transport stdio --command npx --arg=-y --arg=@upstash/context7-mcp --description "Current third-party library and SDK docs via Context7"
+ironclaw mcp test context7
+```
+
+If you also want broader live web search and page fetch inside the same host, register Exa as another stdio MCP server:
+
+```bash
+ironclaw mcp add exa --transport stdio --command npx --arg=-y --arg=exa-mcp-server --description "Exa web search and page fetch"
+ironclaw mcp test exa
+```
+
+If `npx` is not on your `PATH`, point `--command` at your local `npx` or `npx.cmd` binary instead.
+
+If you need authenticated Exa access, provide `EXA_API_KEY` through IronClaw's local environment rather than committing it to repo files.
+
+Once OpenSpace is registered, IronClaw can expose these OpenSpace-backed MCP tools:
+
+- `openspace_search_skills`
+- `openspace_execute_task`
+- `openspace_fix_skill`
+- `openspace_upload_skill`
+
+This repository also bundles three OpenSpace-specific skills for host-side routing:
+
+- `openspace-discovery`
+- `openspace-delegation`
+- `openspace-phased-delegation`
+
+Recommended order for library, framework, or live web work: search the local repo first, use the bundled OpenSpace skills and tools second, reach for Context7 when the missing piece is current external API documentation, and use Exa only when broader live web search or page fetch is the missing piece.
+
+Use stdio first. Move to HTTP transport only when you need OpenSpace running as a separate long-lived service.
+
 ## Security
 
 IronClaw implements defense in depth to protect your data and prevent misuse.
