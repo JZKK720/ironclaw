@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fork Upgrade Notes
+## [0.29.1](https://github.com/nearai/ironclaw/compare/ironclaw-v0.29.0...ironclaw-v0.29.1) - 2026-06-04
 
-- upgrade the fork runtime baseline to upstream `0.29.0` while keeping fork-owned GHCR publication and pull-based local rollout workflows
+### Fork Upgrade Notes (0.29.0 -> 0.29.1)
+
+- upgrade the fork runtime baseline to upstream `0.29.1` while keeping fork-owned GHCR publication and pull-based local rollout workflows
 - keep the fork-side Telegram callback timeout, reduced `getUpdates` polling budget, and `owner_id` capability fixes in place for local runtime stability
 - back up `.env`, `IRONCLAW_HOME_DIR`, and the external PostgreSQL volume before pulling the refreshed fork images into a local Docker stack
 
@@ -19,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(wasm)* `http_request` host function now uses `ssrf_safe_client_builder_for_target()` to avoid unintended HTTP proxy routing when `HTTPS_PROXY` is set
 - *(telegram)* reduce `getUpdates` long-poll timeout from 25 s to 10 s and HTTP client timeout from 35 s to 15 s to stay within the 45 s callback budget
 - *(telegram)* `owner_id` in capabilities JSON must be a JSON string (not null or number); fixed type and value so owner restriction correctly activates on startup
+
+### Upstream Highlights
+
+### Added
+
+- *(web)* plumb temperature through Responses API ([#3641](https://github.com/nearai/ironclaw/pull/3641))
+
+### Fixed
+
+- *(engine)* scope v1 history for channel conversations ([#4320](https://github.com/nearai/ironclaw/pull/4320))
+
+### CI / Release
+
+- *(release)* add WeCom release artifact ([#4107](https://github.com/nearai/ironclaw/pull/4107))
+- *(ci)* track `nearai/benchmarks` at `main` instead of pinning ([#4217](https://github.com/nearai/ironclaw/pull/4217))
+- *(ci)* grant `id-token: write` to unblock nearai-bench reusable workflow ([#4220](https://github.com/nearai/ironclaw/pull/4220))
+- *(ci)* scope `id-token: write` to the nearai-bench job ([#4221](https://github.com/nearai/ironclaw/pull/4221))
 
 ## [0.29.0](https://github.com/nearai/ironclaw/compare/ironclaw-v0.28.2...ironclaw-v0.29.0) - 2026-05-26
 
