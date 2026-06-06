@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.2](https://github.com/JZKK720/ironclaw/compare/ironclaw-v0.29.1...ironclaw-v0.29.2) - 2026-06-06
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.29.1](https://github.com/nearai/ironclaw/compare/ironclaw-v0.29.0...ironclaw-v0.29.1) - 2026-06-04
 
 ### Fork Upgrade Notes (0.29.0 -> 0.29.1)
