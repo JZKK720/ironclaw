@@ -1,0 +1,46 @@
+{
+  "name": "IronClaw Rust Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "root",
+  "workspaceFolder": "/workspaces/ironclaw",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "runArgs": [
+    "--init"
+  ],
+  "containerEnv": {
+    "CARGO_TARGET_DIR": "/workspaces/ironclaw/target"
+  },
+  "mounts": [
+    "source=ironclaw-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    "source=ironclaw-cargo-git,target=/usr/local/cargo/git,type=volume",
+    "source=ironclaw-target,target=/workspaces/ironclaw/target,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "rust-analyzer.cargo.allFeatures": true,
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.procMacro.enable": true,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates"
+      ]
+    }
+  },
+  "forwardPorts": [
+    3000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "IronClaw gateway",
+      "onAutoForward": "notify"
+    }
+  }
+}

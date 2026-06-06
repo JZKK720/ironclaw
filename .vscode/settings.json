@@ -1,0 +1,62 @@
+{
+  "files.watcherExclude": {
+    "**/.ironclaw-dev/**": true
+  },
+  "search.exclude": {
+    "**/.ironclaw-dev/**": true
+  },
+  "terminal.integrated.env.windows": {
+    "CARGO_HOME": "${workspaceFolder}\\.ironclaw-dev\\windows-rust\\cargo-home",
+    "RUSTUP_HOME": "${workspaceFolder}\\.ironclaw-dev\\windows-rust\\rustup-home",
+    "PATH": "${workspaceFolder}\\.ironclaw-dev\\windows-rust\\cargo-home\\bin;${env:PATH}"
+  },
+  "rust-analyzer.cargo.targetDir": true,
+  "rust-analyzer.cargo.extraEnv": {
+    "CARGO_HOME": ".ironclaw-dev/windows-rust/cargo-home",
+    "RUSTUP_HOME": ".ironclaw-dev/windows-rust/rustup-home"
+  },
+  "rust-analyzer.check.extraEnv": {
+    "CARGO_HOME": ".ironclaw-dev/windows-rust/cargo-home",
+    "RUSTUP_HOME": ".ironclaw-dev/windows-rust/rustup-home"
+  },
+  "rust-analyzer.check.overrideCommand": [
+    "powershell.exe",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "scripts/setup-windows-vscode-rust.ps1",
+    "cargo",
+    "check",
+    "--quiet",
+    "--workspace",
+    "--message-format=json",
+    "--all-targets",
+    "--keep-going"
+  ],
+  "rust-analyzer.cargo.buildScripts.overrideCommand": [
+    "powershell.exe",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "scripts/setup-windows-vscode-rust.ps1",
+    "cargo",
+    "check",
+    "--quiet",
+    "--workspace",
+    "--message-format=json",
+    "--all-targets",
+    "--keep-going"
+  ],
+  "rust-analyzer.rustfmt.overrideCommand": [
+    "powershell.exe",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "scripts/setup-windows-vscode-rust.ps1",
+    "rustfmt"
+  ],
+  "rust-analyzer.runnables.command": "cargo-local.cmd"
+}

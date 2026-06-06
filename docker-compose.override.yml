@@ -12,12 +12,13 @@ services:
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
-      - app
+      - ironclaw
     networks:
       - default
 
-  app:
+  ironclaw:
     image: ${IRONCLAW_APP_IMAGE:-ghcr.io/jzkk720/ironclaw:latest}
+    command: run
     depends_on:
       postgres:
         condition: service_healthy
@@ -30,6 +31,9 @@ services:
     environment:
       DATABASE_URL: postgres://ironclaw:ironclaw@postgres:5432/ironclaw
       IRONCLAW_BASE_DIR: /home/ironclaw/.ironclaw
+      GATEWAY_HOST: 0.0.0.0
+      ONBOARD_COMPLETED: "true"
+      CLI_ENABLED: "false"
       SANDBOX_CONTAINER_USER: "0:0"
     user: "0:0"
     volumes:
@@ -38,12 +42,9 @@ services:
     networks:
       - default
 
-  # Optional profile: `docker compose --profile worker-cache up -d worker-cache`
-  # keeps the sandbox worker image pinned by a lightweight idle container.
+  # Keep the sandbox worker image pinned by a lightweight idle container.
   # Real sandbox jobs still launch separate on-demand worker containers.
   worker-cache:
-    profiles:
-      - worker-cache
     image: ${SANDBOX_IMAGE:-ghcr.io/jzkk720/ironclaw-worker:latest}
     restart: unless-stopped
     entrypoint:
@@ -59,4 +60,4 @@ services:
 volumes:
   pgdata:
     external: true
-    name: ironclaw-v024-fresh-install_pgdata
+    name: ironclaw-pgdata

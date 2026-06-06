@@ -26,6 +26,8 @@ pub struct SandboxModeConfig {
     pub cpu_shares: u32,
     /// Docker image for the sandbox.
     pub image: String,
+    /// User/group passed to worker containers.
+    pub container_user: String,
     /// Whether to auto-pull the image if not found.
     pub auto_pull_image: bool,
     /// Additional domains to allow through the network proxy.
@@ -46,6 +48,7 @@ impl Default for SandboxModeConfig {
             memory_limit_mb: 2048,
             cpu_shares: 1024,
             image: crate::settings::DEFAULT_SANDBOX_IMAGE.to_string(),
+            container_user: "1000:1000".to_string(),
             auto_pull_image: true,
             extra_allowed_domains: Vec::new(),
             reaper_interval_secs: 300,
@@ -113,6 +116,10 @@ impl SandboxModeConfig {
                 "SANDBOX_CPU_SHARES",
             )?,
             image: db_first_or_default(&normalized_image, &defaults.image, "SANDBOX_IMAGE")?,
+            container_user: parse_string_env(
+                "SANDBOX_CONTAINER_USER",
+                defaults.container_user,
+            )?,
             auto_pull_image: db_first_bool(
                 ss.auto_pull_image,
                 defaults.auto_pull_image,
@@ -434,6 +441,7 @@ mod tests {
         assert_eq!(cfg.memory_limit_mb, 2048);
         assert_eq!(cfg.cpu_shares, 1024);
         assert_eq!(cfg.image, crate::settings::DEFAULT_SANDBOX_IMAGE);
+        assert_eq!(cfg.container_user, "1000:1000");
         assert!(cfg.auto_pull_image);
         assert!(cfg.extra_allowed_domains.is_empty());
     }
@@ -447,6 +455,7 @@ mod tests {
             memory_limit_mb: 4096,
             cpu_shares: 512,
             image: "custom-worker:v2".to_string(),
+            container_user: "0:0".to_string(),
             auto_pull_image: false,
             extra_allowed_domains: vec!["example.com".to_string()],
             reaper_interval_secs: 300,
@@ -459,6 +468,7 @@ mod tests {
         assert_eq!(cfg.memory_limit_mb, 4096);
         assert_eq!(cfg.cpu_shares, 512);
         assert_eq!(cfg.image, "custom-worker:v2");
+        assert_eq!(cfg.container_user, "0:0");
         assert!(!cfg.auto_pull_image);
         assert_eq!(cfg.extra_allowed_domains, vec!["example.com"]);
     }
@@ -472,6 +482,7 @@ mod tests {
             memory_limit_mb: 1024,
             cpu_shares: 2048,
             image: "test:latest".to_string(),
+            container_user: "1000:1000".to_string(),
             auto_pull_image: false,
             extra_allowed_domains: vec!["custom.example.com".to_string()],
             reaper_interval_secs: 300,
@@ -729,13 +740,16 @@ mod tests {
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe { std::env::set_var("SANDBOX_TIMEOUT_SECS", "42") };
         unsafe { std::env::set_var("SANDBOX_MEMORY_LIMIT_MB", "512") };
+        unsafe { std::env::set_var("SANDBOX_CONTAINER_USER", "0:0") };
         let cfg = SandboxModeConfig::resolve(&settings).expect("resolve");
         unsafe { std::env::remove_var("SANDBOX_TIMEOUT_SECS") };
         unsafe { std::env::remove_var("SANDBOX_MEMORY_LIMIT_MB") };
+        unsafe { std::env::remove_var("SANDBOX_CONTAINER_USER") };
 
         // Env values win when settings are at their defaults.
         assert_eq!(cfg.timeout_secs, 42);
         assert_eq!(cfg.memory_limit_mb, 512);
+        assert_eq!(cfg.container_user, "0:0");
     }
 
     // ── ClaudeCodeConfig settings fallback tests ────────────────────

@@ -127,6 +127,28 @@ brew install ironclaw
 </details>
 
 <details>
+  <summary>Develop in the VS Code Dev Container (recommended on Windows)</summary>
+
+If Windows security blocks fresh Rust binaries or access to `.cargo` / `.rustup`, open this repository with the Dev Containers extension and Docker Desktop instead of using host `cargo`.
+
+The repo ships with a `.devcontainer/` configuration, so `cargo`, `rustc`, terminals, and `rust-analyzer` run inside Linux. In VS Code, run `Dev Containers: Reopen in Container` from the Command Palette.
+
+The container's post-create step pins the workspace to Rust 1.92 and attempts to install the `wasm32-wasip2` target plus `wasm-tools`. If your network is slow during first setup, rerun `.devcontainer/post-create.sh` inside the container.
+
+</details>
+
+<details>
+  <summary>Develop in a normal local VS Code window on Windows</summary>
+
+If you want to keep the repository open locally in VS Code instead of reopening it in a container, the workspace now ships with a Windows-safe Rust bootstrap.
+
+Run the task `Rust: Bootstrap local Windows toolchain` once. It installs Rust into `.ironclaw-dev/windows-rust/` inside the repo instead of using `%USERPROFILE%\\.cargo` and `%USERPROFILE%\\.rustup`, then pins the toolchain from `rust-toolchain.toml`.
+
+After that, local VS Code terminals, workspace cargo tasks, `rust-analyzer` diagnostics, and formatting use the repo-local Rust home. The default build task is `Cargo: Check (local Windows-safe)`.
+
+</details>
+
+<details>
   <summary>Compile the source code (Cargo on Windows, Linux, macOS)</summary>
 
 Install it with `cargo`, just make sure you have [Rust](https://rustup.rs) installed on your computer.

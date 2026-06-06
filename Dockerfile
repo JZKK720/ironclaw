@@ -137,6 +137,7 @@ WORKDIR /home/ironclaw
 
 EXPOSE 3000
 
+ENV GATEWAY_HOST=0.0.0.0
 ENV RUST_LOG=ironclaw=info
 
 ENTRYPOINT ["ironclaw"]

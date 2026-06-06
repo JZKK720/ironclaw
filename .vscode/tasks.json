@@ -2,6 +2,91 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Rust: Bootstrap local Windows toolchain",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\setup-windows-vscode-rust.ps1",
+				"-BootstrapOnly"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Cargo: Check (local Windows-safe)",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\setup-windows-vscode-rust.ps1",
+				"cargo",
+				"check",
+				"--locked",
+				"--workspace"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "Cargo: Test no-run (local Windows-safe)",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\setup-windows-vscode-rust.ps1",
+				"cargo",
+				"test",
+				"--locked",
+				"--workspace",
+				"--no-run"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
+			"label": "Cargo: Clippy (local Windows-safe)",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\scripts\\setup-windows-vscode-rust.ps1",
+				"cargo",
+				"clippy",
+				"--locked",
+				"--workspace",
+				"--all-targets",
+				"--all-features",
+				"--",
+				"-D",
+				"warnings"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			]
+		},
+		{
 			"label": "Check Fork Release Status",
 			"type": "shell",
 			"command": "powershell.exe",

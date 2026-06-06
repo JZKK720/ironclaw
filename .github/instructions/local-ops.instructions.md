@@ -13,9 +13,9 @@ description: "Local Docker rollout and state-safety rules for IronClaw. Apply wh
 
 ## Preferred Rollout Modes
 
-- For local upgrades to already-published images, prefer pull mode: `docker compose pull` followed by `docker compose up -d --no-build postgres ironclaw`.
-- Pull the worker image as well when runtime and sandbox versions must stay aligned, even though the `ironclaw-worker` compose service is build-only.
-- Use `docker compose up -d --build ironclaw` only when validating unpublished source changes instead of a GHCR rollout.
+- For local upgrades to already-published images, prefer pull mode: `docker compose pull` followed by `docker compose up -d --no-build postgres ironclaw worker-cache`.
+- Keep `worker-cache` running when runtime and sandbox versions must stay aligned. It pins `SANDBOX_IMAGE` with a lightweight idle container while real sandbox jobs still launch on demand.
+- Use `docker compose up -d --build ironclaw worker-cache` only when validating unpublished source changes instead of a GHCR rollout.
 - Respect `IRONCLAW_APP_IMAGE` and `SANDBOX_IMAGE` pins in `.env`. Do not silently switch users from a pinned tag or digest back to `:latest`.
 - Do not repoint `IRONCLAW_APP_IMAGE` or `SANDBOX_IMAGE` from fork GHCR to upstream GHCR during a routine local rollout unless `/validate-ghcr-upgrade` already proved the upstream runtime and worker images are equivalent for the targeted release line.
 

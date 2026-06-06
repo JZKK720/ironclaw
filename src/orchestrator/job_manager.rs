@@ -90,6 +90,8 @@ pub struct JobCreationParams {
 pub struct ContainerJobConfig {
     /// Docker image for worker containers.
     pub image: String,
+    /// User/group for worker containers.
+    pub container_user: String,
     /// Whether to auto-pull the image if it is missing locally.
     pub auto_pull_image: bool,
     /// Default memory limit in MB.
@@ -130,6 +132,7 @@ impl Default for ContainerJobConfig {
     fn default() -> Self {
         Self {
             image: crate::settings::DEFAULT_SANDBOX_IMAGE.to_string(),
+            container_user: "1000:1000".to_string(),
             auto_pull_image: true,
             memory_limit_mb: 2048,
             cpu_shares: 1024,
@@ -709,7 +712,7 @@ impl ContainerJobManager {
             cmd: Some(cmd),
             env: Some(env_vec),
             host_config: Some(host_config),
-            user: Some("1000:1000".to_string()),
+            user: Some(self.config.container_user.clone()),
             working_dir: Some("/workspace".to_string()),
             labels: Some(labels),
             ..Default::default()
@@ -1659,6 +1662,21 @@ mod tests {
         assert!(
             source.contains("self.ensure_image_available(Uuid::nil(), &docker).await"),
             "prewarm_worker_image must reuse ensure_image_available so startup and job launch stay aligned"
+        );
+    }
+
+    #[test]
+    fn test_container_user_defaults_to_non_root_and_is_used_for_container_create() {
+        let config = ContainerJobConfig::default();
+        assert_eq!(
+            config.container_user, "1000:1000",
+            "worker containers must stay non-root by default"
+        );
+
+        let source = include_str!("job_manager.rs");
+        assert!(
+            source.contains("user: Some(self.config.container_user.clone()),"),
+            "create_job_inner must use ContainerJobConfig.container_user instead of a hardcoded uid:gid"
         );
     }
 

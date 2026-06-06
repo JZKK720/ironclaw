@@ -113,6 +113,7 @@ pub async fn setup_orchestrator(
         let orchestrator_port = resolve_orchestrator_port();
         let job_config = ContainerJobConfig {
             image: config.sandbox.image.clone(),
+            container_user: config.sandbox.container_user.clone(),
             auto_pull_image: config.sandbox.auto_pull_image,
             memory_limit_mb: config.sandbox.memory_limit_mb,
             cpu_shares: config.sandbox.cpu_shares,
@@ -219,6 +220,15 @@ mod tests {
         assert!(
             source.contains("if let Err(e) = jm.prewarm_worker_image().await {"),
             "setup_orchestrator must prewarm the worker image so pruned caches are repaired at startup"
+        );
+    }
+
+    #[test]
+    fn setup_orchestrator_passes_container_user_into_job_config() {
+        let source = include_str!("mod.rs");
+        assert!(
+            source.contains("container_user: config.sandbox.container_user.clone(),"),
+            "setup_orchestrator must pass SANDBOX_CONTAINER_USER through to ContainerJobConfig"
         );
     }
 }

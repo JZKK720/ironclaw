@@ -14,12 +14,12 @@ RUST_LOG=ironclaw=debug cargo run                 # run with logging
 
 **Windows — Smart App Control blocks freshly compiled binaries.** Use Docker as the authoritative build path:
 ```powershell
-docker compose up -d --build ironclaw
+docker compose up -d --build ironclaw worker-cache
 ```
 
 ## Docker Build Modes
 
-- For deploy-like validation, stay in pull mode: `docker compose pull` and then `docker compose up -d --no-build postgres ironclaw`.
+- For deploy-like validation, stay in pull mode: `docker compose pull` and then `docker compose up -d --no-build postgres ironclaw worker-cache`.
 - `ironclaw-worker` is still a required runtime image for orchestrated job containers, but its compose service is build-only; do not start it with `docker compose up` unless you are explicitly testing that image build.
 - Engine v2 `/project/` sandboxing is a different container path driven by [crates/Dockerfile.sandbox](../crates/Dockerfile.sandbox) and [docs/plans/2026-04-10-engine-v2-sandbox.md](../docs/plans/2026-04-10-engine-v2-sandbox.md). Do not remove `Dockerfile.worker` or the `SANDBOX_IMAGE` path without first auditing [src/config/sandbox.rs](../src/config/sandbox.rs), [src/orchestrator/job_manager.rs](../src/orchestrator/job_manager.rs), [src/cli/mod.rs](../src/cli/mod.rs), and [src/bridge/sandbox/](../src/bridge/sandbox/).
 - For pull-based local rollouts, treat `.env`, `IRONCLAW_HOME_DIR`, and the external `ironclaw-pgdata` volume as operator-owned state. Back them up before `docker compose pull` or container recreation.
